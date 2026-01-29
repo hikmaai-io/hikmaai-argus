@@ -96,7 +96,7 @@ Examples:
 }
 
 func scanDirect(ctx context.Context, hashes []string, dataDir string, outputJSON bool) error {
-	// Create engine.
+	// Create engine with bloom filter rebuilt from existing signatures.
 	eng, err := engine.NewEngine(engine.EngineConfig{
 		StoreConfig: engine.StoreConfig{
 			Path: dataDir,
@@ -105,6 +105,7 @@ func scanDirect(ctx context.Context, hashes []string, dataDir string, outputJSON
 			ExpectedItems:     10_000_000,
 			FalsePositiveRate: 0.001,
 		},
+		RebuildBloomOnStart: true,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create engine: %w", err)

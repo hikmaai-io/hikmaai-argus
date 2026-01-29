@@ -18,6 +18,10 @@ type EngineConfig struct {
 
 	// Bloom filter configuration.
 	BloomConfig BloomConfig
+
+	// RebuildBloomOnStart rebuilds the bloom filter from the database on startup.
+	// This ensures the bloom filter is populated with existing signatures.
+	RebuildBloomOnStart bool
 }
 
 // EngineStats contains statistics about the engine.
@@ -64,11 +68,21 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 
 	bloom := NewBloomFilter(cfg.BloomConfig)
 
-	return &Engine{
+	e := &Engine{
 		store:  store,
 		bloom:  bloom,
 		config: cfg,
-	}, nil
+	}
+
+	// Rebuild bloom filter from existing data if requested.
+	if cfg.RebuildBloomOnStart {
+		if err := e.RebuildBloomFilter(context.Background()); err != nil {
+			store.Close()
+			return nil, fmt.Errorf("failed to rebuild bloom filter on start: %w", err)
+		}
+	}
+
+	return e, nil
 }
 
 // Close closes the engine and releases resources.

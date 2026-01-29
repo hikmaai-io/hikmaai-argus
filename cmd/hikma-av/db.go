@@ -84,6 +84,8 @@ func newDBCompactCmd() *cobra.Command {
 }
 
 func dbStats(ctx context.Context, dataDir string) error {
+	fmt.Printf("Database path: %s\n", dataDir)
+
 	store, err := engine.NewStore(engine.StoreConfig{
 		Path: dataDir,
 	})
@@ -100,6 +102,12 @@ func dbStats(ctx context.Context, dataDir string) error {
 	fmt.Printf("Database Statistics:\n")
 	fmt.Printf("  Signatures: %d\n", stats.SignatureCount)
 	fmt.Printf("  Size:       %s\n", formatBytes(stats.SizeBytes))
+
+	if stats.SignatureCount == 0 {
+		fmt.Println()
+		fmt.Println("Database is empty. Load signatures with:")
+		fmt.Println("  hikma-av feeds update")
+	}
 
 	return nil
 }

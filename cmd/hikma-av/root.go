@@ -26,8 +26,6 @@ followed by BadgerDB for confirmed lookups.
 
 Supports daemon mode with NATS messaging, direct CLI scans, and
 feed management for ClamAV and abuse.ch signatures.`,
-		SilenceUsage:  true,
-		SilenceErrors: true,
 	}
 
 	// Global flags.
