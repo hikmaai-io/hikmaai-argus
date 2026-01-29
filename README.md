@@ -4,10 +4,11 @@ A stateless, signature-based antivirus service with fast hash lookups using a tw
 
 ## Features
 
+- **Standalone Operation**: Single binary, no external dependencies required
 - **Fast Hash Lookups**: O(1) rejection via Bloom filter, O(1) lookup via BadgerDB
 - **Multiple Hash Types**: Supports SHA256, SHA1, and MD5
-- **NATS Messaging**: Request/reply pattern with queue groups for load balancing
-- **Observability**: OpenTelemetry tracing (Tempo) and structured logging (Loki)
+- **NATS Messaging** (optional): Request/reply pattern with queue groups for load balancing
+- **Observability** (optional): OpenTelemetry tracing (Tempo) and structured logging (Loki)
 - **CLI & Daemon Modes**: Direct database access or daemon with NATS messaging
 - **Feed Support**: EICAR test signatures, CSV feeds (abuse.ch format)
 

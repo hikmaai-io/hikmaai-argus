@@ -62,23 +62,27 @@ type FeedsConfig struct {
 }
 
 // DefaultConfig returns a Config with default values.
+// All external dependencies (NATS, tracing) are disabled by default
+// for standalone single-binary operation.
 func DefaultConfig() *Config {
 	return &Config{
 		DataDir: DefaultDataDir(),
 		NATS: NATSConfig{
-			URL:     "nats://localhost:4222",
+			// Disabled by default; set URL to enable
+			URL:     "",
 			Subject: "hikma.av.scan",
 			Queue:   "av-workers",
 		},
 		HTTP: HTTPConfig{
-			Addr: ":8080",
+			// Disabled by default; set Addr to enable (e.g., ":8080")
+			Addr: "",
 		},
 		Log: LogConfig{
 			Level:  "info",
-			Format: "json",
+			Format: "text", // Human-readable by default
 		},
 		Tracing: TracingConfig{
-			Enabled:       false,
+			Enabled:       false, // Disabled by default
 			Endpoint:      "localhost:4317",
 			Insecure:      true,
 			SamplingRatio: 1.0,
