@@ -1,0 +1,64 @@
+# ABOUTME: Git ignore patterns for hikma-av project
+# ABOUTME: Excludes build artifacts, data directories, IDE files, and secrets
+
+# Binaries
+/bin/
+/hikma-av
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build and test artifacts
+*.test
+*.out
+coverage.html
+coverage.txt
+coverage.out
+
+# Data directories
+/data/
+/badger/
+*.db
+*.sst
+*.vlog
+
+# Bloom filter snapshots
+*.bloom
+
+# Feed data
+/feeds/
+*.cvd
+*.cld
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+
+# Vendor (optional; uncomment if vendoring)
+# /vendor/
+
+# Debug
+__debug_bin*
+*.prof
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# OS files
+Thumbs.db

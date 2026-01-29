@@ -1,0 +1,179 @@
+# ABOUTME: golangci-lint configuration for hikma-av project
+# ABOUTME: Enforces code quality, error handling, and Go idioms
+
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  modules-download-mode: readonly
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true
+
+linters:
+  enable:
+    # Default linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # Additional linters
+    - bodyclose
+    - contextcheck
+    - dogsled
+    - dupl
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - copyloopvar
+    - forcetypeassert
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - gofmt
+    - goimports
+    - goprintffuncname
+    - gosec
+    - misspell
+    - nakedret
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - stylecheck
+    - tenv
+    - testpackage
+    - tparallel
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+
+  exhaustive:
+    default-signifies-exhaustive: true
+
+  gocyclo:
+    min-complexity: 15
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+
+  gofmt:
+    simplify: true
+
+  goimports:
+    local-prefixes: github.com/hikmaai-io/hikma-av
+
+  gosec:
+    excludes:
+      - G104 # Audit errors not checked (we use errcheck)
+    config:
+      G306:
+        "0644"
+
+  misspell:
+    locale: US
+
+  nakedret:
+    max-func-lines: 30
+
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+  stylecheck:
+    checks:
+      - all
+      - -ST1000 # Package comments (handled by revive)
+
+  unparam:
+    check-exported: false
+
+issues:
+  exclude-rules:
+    # Test files can have longer functions
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - dupl
+        - gosec
+        - forcetypeassert
+
+    # Allow init functions in cmd packages
+    - path: cmd/
+      linters:
+        - gochecknoinits
+
+    # Allow dot imports in test files for testing frameworks
+    - path: _test\.go
+      text: "dot-imports"
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+
+severity:
+  default-severity: error
+  rules:
+    - linters:
+        - dupl
+      severity: warning
+    - linters:
+        - goconst
+      severity: warning
