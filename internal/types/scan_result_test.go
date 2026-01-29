@@ -243,6 +243,80 @@ func TestThreatTypeFromDetection(t *testing.T) {
 	}
 }
 
+func TestScanResult_ToSignature(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		result   *ScanResult
+		wantNil  bool
+		wantSHA  string
+		wantName string
+	}{
+		{
+			name:     "infected result converts to signature",
+			result:   NewInfectedScanResult("/path/to/malware.exe", "abc123hash", 2048, "Win.Trojan.Agent"),
+			wantNil:  false,
+			wantSHA:  "abc123hash",
+			wantName: "Win.Trojan.Agent",
+		},
+		{
+			name:    "clean result returns nil",
+			result:  NewCleanScanResult("/path/to/file.txt", "def456hash", 1024),
+			wantNil: true,
+		},
+		{
+			name:    "error result returns nil",
+			result:  NewErrorScanResult("/path/to/file.txt", "some error"),
+			wantNil: true,
+		},
+		{
+			name: "infected result without hash returns nil",
+			result: &ScanResult{
+				Status:    ScanStatusInfected,
+				Detection: "Win.Trojan.Agent",
+			},
+			wantNil: true,
+		},
+		{
+			name: "infected result without detection returns nil",
+			result: &ScanResult{
+				Status:   ScanStatusInfected,
+				FileHash: "abc123hash",
+			},
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sig := tt.result.ToSignature()
+
+			if tt.wantNil {
+				if sig != nil {
+					t.Errorf("ToSignature() = %v, want nil", sig)
+				}
+				return
+			}
+
+			if sig == nil {
+				t.Fatal("ToSignature() = nil, want signature")
+			}
+			if sig.SHA256 != tt.wantSHA {
+				t.Errorf("SHA256 = %q, want %q", sig.SHA256, tt.wantSHA)
+			}
+			if sig.DetectionName != tt.wantName {
+				t.Errorf("DetectionName = %q, want %q", sig.DetectionName, tt.wantName)
+			}
+			if sig.Source != "clamav-scan" {
+				t.Errorf("Source = %q, want %q", sig.Source, "clamav-scan")
+			}
+		})
+	}
+}
+
 func TestScanResult_ScannedAtIsUTC(t *testing.T) {
 	t.Parallel()
 

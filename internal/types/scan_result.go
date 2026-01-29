@@ -166,6 +166,30 @@ func SeverityFromDetection(detection string) Severity {
 	return SeverityMedium
 }
 
+// ToSignature converts an infected ScanResult to a Signature for persistence.
+// Returns nil if the result is not infected or missing required data.
+func (r *ScanResult) ToSignature() *Signature {
+	if r.Status != ScanStatusInfected {
+		return nil
+	}
+	if r.FileHash == "" {
+		return nil
+	}
+	if r.Detection == "" {
+		return nil
+	}
+
+	return &Signature{
+		SHA256:        r.FileHash,
+		DetectionName: r.Detection,
+		ThreatType:    r.ThreatType,
+		Severity:      r.Severity,
+		Source:        "clamav-scan",
+		FirstSeen:     r.ScannedAt,
+		Description:   "Detected by ClamAV scan",
+	}
+}
+
 // ThreatTypeFromDetection maps a ClamAV detection name to a threat type.
 func ThreatTypeFromDetection(detection string) ThreatType {
 	if detection == "" {
