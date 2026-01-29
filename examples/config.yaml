@@ -1,12 +1,16 @@
-# ABOUTME: Main configuration file for hikma-av
-# ABOUTME: Copy to ~/.config/hikma-av/config.yaml or /etc/hikma-av/config.yaml
+# ABOUTME: Main configuration file for hikmaai-argus
+# ABOUTME: Copy to ~/.config/hikmaai-argus/config.yaml or /etc/hikmaai-argus/config.yaml
 
 # HikmaAV runs as a standalone single binary by default.
 # All external dependencies (NATS, HTTP server, tracing) are DISABLED by default.
 # Uncomment the sections below to enable them.
 
-# Data directory for BadgerDB and bloom filter
-data_dir: /var/lib/hikma-av
+# Data directory for HikmaAI signatures (BadgerDB, bloom filter, job store, scan cache)
+data_dir: data/hikmaaidb
+
+# ClamAV database directory for CVD files (main.cvd, daily.cvd)
+# Managed by the "clamav-db" feed source or hikmaai-argus feeds update --source clamav-db
+clamdb_dir: data/clamdb
 
 # NATS configuration for daemon mode (OPTIONAL)
 # Uncomment to enable NATS messaging
@@ -34,12 +38,14 @@ tracing:
   # sampling_ratio: 1.0  # 1.0 = sample all, 0.1 = 10%
 
 # Signature feed configuration
+# Note: Feeds can also be managed via daemon flags:
+#   hikmaai-argus daemon --feeds-update --feeds-interval 1h
 feeds:
   update_interval: 1h
   sources:
     - eicar           # Built-in EICAR test signatures
-    # - clamav        # ClamAV main.cvd and daily.cvd (extracts hashes to DB)
-    # - clamav-db     # Downloads CVD files for clamscan (see clamav section)
+    # - clamav        # ClamAV signature hashes (extracts from CVD files to DB)
+    # - clamav-db     # Downloads CVD files for clamscan (required for file scanning)
     # - malwarebazaar # abuse.ch MalwareBazaar hashes
     # - threatfox     # abuse.ch ThreatFox IOCs
 
@@ -59,8 +65,8 @@ clamav:
 
   # Database directory for CVD files (main.cvd, daily.cvd, bytecode.cvd)
   # Managed by the "clamav-db" feed source
-  # Defaults to data_dir/clamav if not set
-  # database_dir: /var/lib/hikma-av/clamav
+  # Defaults to clamdb_dir (data/clamdb) if not set
+  # database_dir: data/clamdb
 
   # clamd address (only for clamd mode)
   # address: unix:///var/run/clamav/clamd.ctl
@@ -77,3 +83,41 @@ clamav:
 
   # Cache TTL for scan results (avoids re-scanning same file)
   cache_ttl: 24h
+
+# Trivy dependency vulnerability scanner (OPTIONAL)
+# Scans package dependencies for known CVEs via a remote Trivy server.
+# Only package names and versions are sent; no source code or file contents.
+# Disabled by default; requires a running Trivy server.
+trivy:
+  enabled: false
+
+  # Trivy server URL (required to enable)
+  # Start a Trivy server: docker run -p 4954:4954 aquasec/trivy server --listen 0.0.0.0:4954
+  # server_url: http://trivy-server:4954
+
+  # Scan timeout
+  timeout: 2m
+
+  # Default severity filter (if not specified in request)
+  # Only vulnerabilities matching these severities will be returned
+  default_severities:
+    - HIGH
+    - CRITICAL
+
+  # Supported package ecosystems
+  supported_ecosystems:
+    - pip       # Python packages
+    - npm       # Node.js packages
+    - gomod     # Go modules
+    - cargo     # Rust crates
+    - composer  # PHP packages
+    # - maven   # Java packages
+    # - nuget   # .NET packages
+    # - rubygems # Ruby gems
+
+  # Number of concurrent scan workers
+  workers: 2
+
+  # Cache TTL for per-package vulnerability results
+  # Caching reduces redundant queries to Trivy server
+  cache_ttl: 1h
