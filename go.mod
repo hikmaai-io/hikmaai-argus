@@ -5,9 +5,13 @@ module github.com/hikmaai-io/hikma-av
 
 go 1.23.0
 
-require github.com/dgraph-io/badger/v4 v4.9.0
+require (
+	github.com/bits-and-blooms/bloom/v3 v3.7.1
+	github.com/dgraph-io/badger/v4 v4.9.0
+)
 
 require (
+	github.com/bits-and-blooms/bitset v1.24.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
