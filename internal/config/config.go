@@ -1,4 +1,4 @@
-// ABOUTME: Configuration loading and defaults for hikma-av
+// ABOUTME: Configuration loading and defaults for hikmaai-argus
 // ABOUTME: Handles YAML config files and environment variables
 
 package config
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Config holds the complete configuration for hikma-av.
+// Config holds the complete configuration for hikmaai-argus.
 type Config struct {
 	// Data directory for BadgerDB and bloom filter.
 	DataDir string `yaml:"data_dir"`
@@ -31,6 +31,9 @@ type Config struct {
 
 	// ClamAV scanner configuration.
 	ClamAV ClamAVConfig `yaml:"clamav"`
+
+	// Trivy dependency scanner configuration.
+	Trivy TrivyConfig `yaml:"trivy"`
 }
 
 // NATSConfig holds NATS connection settings.
@@ -99,6 +102,31 @@ type ClamAVConfig struct {
 	CacheTTL time.Duration `yaml:"cache_ttl"`
 }
 
+// TrivyConfig holds Trivy dependency scanner settings.
+type TrivyConfig struct {
+	// Enabled controls whether Trivy scanning is available.
+	Enabled bool `yaml:"enabled"`
+
+	// ServerURL is the Trivy server Twirp endpoint.
+	// Example: "http://trivy-server:4954"
+	ServerURL string `yaml:"server_url"`
+
+	// Timeout for scan operations.
+	Timeout time.Duration `yaml:"timeout"`
+
+	// DefaultSeverities to filter (if not specified in request).
+	DefaultSeverities []string `yaml:"default_severities"`
+
+	// SupportedEcosystems lists package ecosystems to scan.
+	SupportedEcosystems []string `yaml:"supported_ecosystems"`
+
+	// Workers is the number of concurrent scan workers.
+	Workers int `yaml:"workers"`
+
+	// CacheTTL is the time-to-live for cached scan results.
+	CacheTTL time.Duration `yaml:"cache_ttl"`
+}
+
 // DefaultConfig returns a Config with default values.
 // All external dependencies (NATS, tracing) are disabled by default
 // for standalone single-binary operation.
@@ -108,8 +136,8 @@ func DefaultConfig() *Config {
 		NATS: NATSConfig{
 			// Disabled by default; set URL to enable
 			URL:     "",
-			Subject: "hikma.av.scan",
-			Queue:   "av-workers",
+			Subject: "hikmaai.argus.scan",
+			Queue:   "argus-workers",
 		},
 		HTTP: HTTPConfig{
 			// Disabled by default; set Addr to enable (e.g., ":8080")
@@ -140,46 +168,49 @@ func DefaultConfig() *Config {
 			Workers:     2,
 			CacheTTL:    24 * time.Hour,
 		},
+		Trivy: TrivyConfig{
+			Enabled:             false,  // Disabled by default; set ServerURL to enable
+			ServerURL:           "",     // Must be set to enable
+			Timeout:             2 * time.Minute,
+			DefaultSeverities:   []string{"HIGH", "CRITICAL"},
+			SupportedEcosystems: []string{"pip", "npm", "gomod", "cargo", "composer"},
+			Workers:             2,
+			CacheTTL:            1 * time.Hour,
+		},
 	}
 }
 
-// DefaultDataDir returns the default data directory.
+// DefaultDataDir returns the default data directory for HikmaAI signatures.
 func DefaultDataDir() string {
-	// Try XDG_DATA_HOME first.
-	if xdgData := os.Getenv("XDG_DATA_HOME"); xdgData != "" {
-		return filepath.Join(xdgData, "hikma-av")
-	}
+	return "data/hikmaaidb"
+}
 
-	// Fall back to home directory.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "/var/lib/hikma-av"
-	}
-
-	return filepath.Join(home, ".local", "share", "hikma-av")
+// DefaultClamDBDir returns the default directory for ClamAV databases.
+func DefaultClamDBDir() string {
+	return "data/clamdb"
 }
 
 // DefaultConfigPath returns the default config file path.
 func DefaultConfigPath() string {
 	// Try XDG_CONFIG_HOME first.
 	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		return filepath.Join(xdgConfig, "hikma-av", "config.yaml")
+		return filepath.Join(xdgConfig, "hikmaai-argus", "config.yaml")
 	}
 
 	// Fall back to home directory.
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "/etc/hikma-av/config.yaml"
+		return "/etc/hikmaai-argus/config.yaml"
 	}
 
-	return filepath.Join(home, ".config", "hikma-av", "config.yaml")
+	return filepath.Join(home, ".config", "hikmaai-argus", "config.yaml")
 }
 
 // GetClamAVDatabaseDir returns the ClamAV database directory.
-// If ClamAV.DatabaseDir is set, it uses that; otherwise defaults to DataDir/clamav.
+// If ClamAV.DatabaseDir is set, it uses that; otherwise defaults to DefaultClamDBDir().
 func (c *Config) GetClamAVDatabaseDir() string {
 	if c.ClamAV.DatabaseDir != "" {
 		return c.ClamAV.DatabaseDir
 	}
-	return filepath.Join(c.DataDir, "clamav")
+	return DefaultClamDBDir()
 }
