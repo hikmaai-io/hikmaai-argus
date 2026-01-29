@@ -1,0 +1,33 @@
+# ABOUTME: Development configuration for hikma-av
+# ABOUTME: Uses local paths and enables debug logging
+
+# Local data directory
+data_dir: ./data
+
+# NATS (use docker-compose to start NATS locally)
+nats:
+  url: nats://localhost:4222
+  subject: hikma.av.scan
+  queue: av-workers
+
+# HTTP server
+http:
+  addr: :8080
+
+# Debug logging with text format for readability
+log:
+  level: debug
+  format: text
+
+# Tracing disabled for local development
+tracing:
+  enabled: false
+  endpoint: localhost:4317
+  insecure: true
+  sampling_ratio: 1.0
+
+# Feeds
+feeds:
+  update_interval: 5m
+  sources:
+    - eicar

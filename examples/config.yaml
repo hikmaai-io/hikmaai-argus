@@ -1,0 +1,35 @@
+# ABOUTME: Main configuration file for hikma-av
+# ABOUTME: Copy to ~/.config/hikma-av/config.yaml or /etc/hikma-av/config.yaml
+
+# Data directory for BadgerDB and bloom filter
+data_dir: /var/lib/hikma-av
+
+# NATS configuration for daemon mode
+nats:
+  url: nats://localhost:4222
+  subject: hikma.av.scan
+  queue: av-workers
+
+# HTTP server for health/metrics endpoints
+http:
+  addr: :8080
+
+# Logging configuration (Loki compatible)
+log:
+  level: info    # debug, info, warn, error
+  format: json   # json, text
+
+# OpenTelemetry tracing (Tempo compatible)
+tracing:
+  enabled: true
+  endpoint: localhost:4317
+  insecure: true
+  sampling_ratio: 1.0  # 1.0 = sample all, 0.1 = 10%
+
+# Signature feed configuration
+feeds:
+  update_interval: 1h
+  sources:
+    - eicar      # Built-in EICAR test signatures
+    # - clamav   # ClamAV main.cvd and daily.cvd (not yet implemented)
+    # - abusech  # abuse.ch malware bazaar (not yet implemented)
