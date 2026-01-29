@@ -7,19 +7,29 @@ import (
 	"context"
 	"time"
 
-	"github.com/hikmaai-io/hikma-av/internal/engine"
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/engine"
+	"github.com/hikmaai-io/hikmaai-argus/internal/trivy"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 // Handler processes scan requests using the lookup engine.
 type Handler struct {
-	engine *engine.Engine
+	engine       *engine.Engine
+	trivyScanner *trivy.Scanner
 }
 
 // NewHandler creates a new message handler.
 func NewHandler(eng *engine.Engine) *Handler {
 	return &Handler{
 		engine: eng,
+	}
+}
+
+// NewHandlerWithTrivy creates a new message handler with Trivy support.
+func NewHandlerWithTrivy(eng *engine.Engine, trivyScanner *trivy.Scanner) *Handler {
+	return &Handler{
+		engine:       eng,
+		trivyScanner: trivyScanner,
 	}
 }
 
@@ -83,6 +93,35 @@ func (h *Handler) ProcessBatch(ctx context.Context, reqs []ScanRequest) []ScanRe
 	}
 
 	return responses
+}
+
+// ProcessTrivyRequest processes a dependency scan request and returns the response.
+func (h *Handler) ProcessTrivyRequest(ctx context.Context, req TrivyScanRequest) TrivyScanResponse {
+	resp := TrivyScanResponse{
+		RequestID: req.RequestID,
+		ScannedAt: time.Now().UTC(),
+	}
+
+	if h.trivyScanner == nil {
+		resp.Status = "error"
+		resp.Error = "trivy scanning is not enabled"
+		return resp
+	}
+
+	result, err := h.trivyScanner.ScanPackages(ctx, req.Packages, req.SeverityFilter)
+	if err != nil {
+		resp.Status = "error"
+		resp.Error = err.Error()
+		return resp
+	}
+
+	resp.Status = "completed"
+	resp.Summary = &result.Summary
+	resp.Vulnerabilities = result.Vulnerabilities
+	resp.ScanTimeMs = result.ScanTimeMs
+	resp.ScannedAt = result.ScannedAt
+
+	return resp
 }
 
 // ResultToResponse converts an engine Result to a ScanResponse.

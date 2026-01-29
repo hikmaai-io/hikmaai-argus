@@ -1,9 +1,13 @@
 // ABOUTME: Message types for NATS request/reply communication
-// ABOUTME: Defines ScanRequest and ScanResponse structures
+// ABOUTME: Defines ScanRequest, ScanResponse, and Trivy scan structures
 
 package queue
 
-import "time"
+import (
+	"time"
+
+	"github.com/hikmaai-io/hikmaai-argus/internal/trivy"
+)
 
 // ScanRequest is the message sent to request a hash scan.
 type ScanRequest struct {
@@ -75,4 +79,40 @@ type BatchScanResponse struct {
 
 	// Total scan time in milliseconds.
 	TotalTimeMs float64 `json:"total_time_ms"`
+}
+
+// TrivyScanRequest is the NATS message for dependency vulnerability scanning.
+type TrivyScanRequest struct {
+	// Request ID for correlation.
+	RequestID string `json:"request_id,omitempty"`
+
+	// Packages to scan.
+	Packages []trivy.Package `json:"packages"`
+
+	// Optional severity filter.
+	SeverityFilter []string `json:"severity_filter,omitempty"`
+}
+
+// TrivyScanResponse is the NATS response for dependency vulnerability scanning.
+type TrivyScanResponse struct {
+	// Request ID for correlation.
+	RequestID string `json:"request_id,omitempty"`
+
+	// Scan status: "completed" or "error".
+	Status string `json:"status"`
+
+	// Summary of vulnerabilities found.
+	Summary *trivy.ScanSummary `json:"summary,omitempty"`
+
+	// List of vulnerabilities.
+	Vulnerabilities []trivy.Vulnerability `json:"vulnerabilities,omitempty"`
+
+	// Scan time in milliseconds.
+	ScanTimeMs float64 `json:"scan_time_ms,omitempty"`
+
+	// Timestamp of the scan.
+	ScannedAt time.Time `json:"scanned_at"`
+
+	// Error message if status is "error".
+	Error string `json:"error,omitempty"`
 }
