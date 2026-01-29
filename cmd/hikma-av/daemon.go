@@ -1,5 +1,5 @@
 // ABOUTME: Daemon command for running hikma-av as a service
-// ABOUTME: Supports foreground and background modes with NATS messaging
+// ABOUTME: Supports foreground and background modes with NATS messaging and HTTP API
 
 package main
 
@@ -7,15 +7,20 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/hikmaai-io/hikma-av/internal/api"
 	"github.com/hikmaai-io/hikma-av/internal/config"
 	"github.com/hikmaai-io/hikma-av/internal/engine"
 	"github.com/hikmaai-io/hikma-av/internal/observability"
+	"github.com/hikmaai-io/hikma-av/internal/scanner"
 )
 
 func newDaemonCmd() *cobra.Command {
@@ -103,8 +108,77 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 
 	logger.Info("engine initialized")
 
+	// Create job store.
+	jobStore, err := engine.NewJobStore(engine.StoreConfig{
+		Path: filepath.Join(cfg.DataDir, "jobs"),
+	})
+	if err != nil {
+		return fmt.Errorf("creating job store: %w", err)
+	}
+	defer jobStore.Close()
+	logger.Info("job store initialized")
+
+	// Create scan cache.
+	scanCache, err := engine.NewScanCache(
+		engine.StoreConfig{Path: filepath.Join(cfg.DataDir, "cache")},
+		24*time.Hour,
+	)
+	if err != nil {
+		return fmt.Errorf("creating scan cache: %w", err)
+	}
+	defer scanCache.Close()
+	logger.Info("scan cache initialized")
+
+	// Create ClamAV scanner.
+	clamScanner := scanner.NewClamAVScanner(&config.ClamAVConfig{
+		Mode:        "clamscan",
+		Binary:      "clamscan",
+		DatabaseDir: filepath.Join(cfg.DataDir, "clamav"),
+		Timeout:     5 * time.Minute,
+	})
+
+	// Create scan worker.
+	worker := scanner.NewWorker(scanner.WorkerConfig{
+		Scanner:         clamScanner,
+		JobStore:        jobStore,
+		ScanCache:       scanCache,
+		SignatureEngine: eng,
+		Concurrency:     2,
+	})
+
+	// Start worker.
+	workerCtx, workerCancel := context.WithCancel(ctx)
+	defer workerCancel()
+	worker.Start(workerCtx)
+	logger.Info("scan worker started", slog.Int("workers", 2))
+
+	// Create API handler.
+	handler := api.NewHandler(api.HandlerConfig{
+		Engine:      eng,
+		JobStore:    jobStore,
+		ScanCache:   scanCache,
+		Worker:      worker,
+		UploadDir:   filepath.Join(cfg.DataDir, "uploads"),
+		MaxFileSize: 100 * 1024 * 1024,
+	})
+
+	// Start HTTP server.
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	httpServer := &http.Server{
+		Addr:    cfg.HTTPAddr,
+		Handler: api.LoggingMiddleware(mux),
+	}
+
+	go func() {
+		logger.Info("starting HTTP server", slog.String("addr", cfg.HTTPAddr))
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("HTTP server error", slog.String("error", err.Error()))
+		}
+	}()
+
 	// TODO: Connect to NATS and start message handler.
-	// TODO: Start HTTP server for health/metrics.
 
 	// Wait for shutdown signal.
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
@@ -114,5 +188,17 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 	<-ctx.Done()
 
 	logger.Info("shutting down daemon")
+
+	// Graceful shutdown.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		logger.Warn("HTTP server shutdown error", slog.String("error", err.Error()))
+	}
+
+	worker.Stop()
+	logger.Info("daemon stopped")
+
 	return nil
 }
