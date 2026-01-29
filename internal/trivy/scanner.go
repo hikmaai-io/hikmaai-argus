@@ -55,9 +55,20 @@ func NewScanner(cfg ScannerConfig) *Scanner {
 	}
 }
 
+// ScanOptions holds options for a scan operation.
+type ScanOptions struct {
+	SeverityFilter []string
+	ScanSecrets    bool
+}
+
 // ScanPackages scans the given packages for vulnerabilities.
 // If severityFilter is non-empty, only vulnerabilities matching those severities are returned.
 func (s *Scanner) ScanPackages(ctx context.Context, packages []Package, severityFilter []string) (*ScanResult, error) {
+	return s.ScanPackagesWithOptions(ctx, packages, ScanOptions{SeverityFilter: severityFilter})
+}
+
+// ScanPackagesWithOptions scans packages with full options including secret scanning.
+func (s *Scanner) ScanPackagesWithOptions(ctx context.Context, packages []Package, opts ScanOptions) (*ScanResult, error) {
 	if len(packages) == 0 {
 		return nil, errors.New("at least one package is required")
 	}
@@ -85,8 +96,8 @@ func (s *Scanner) ScanPackages(ctx context.Context, packages []Package, severity
 		uncachedPackages = packages
 	}
 
-	// If all packages are cached, return aggregated result
-	if len(uncachedPackages) == 0 {
+	// If all packages are cached and no secret scan requested, return aggregated result
+	if len(uncachedPackages) == 0 && !opts.ScanSecrets {
 		result := &ScanResult{
 			Summary:         NewScanSummary(cachedVulns, len(packages)),
 			Vulnerabilities: cachedVulns,
@@ -94,45 +105,53 @@ func (s *Scanner) ScanPackages(ctx context.Context, packages []Package, severity
 			ScanTimeMs:      float64(time.Since(startTime).Milliseconds()),
 		}
 
-		if len(severityFilter) > 0 {
-			filtered := result.FilterBySeverity(severityFilter)
+		if len(opts.SeverityFilter) > 0 {
+			filtered := result.FilterBySeverity(opts.SeverityFilter)
 			return &filtered, nil
 		}
 		return result, nil
 	}
 
 	// Scan uncached packages via Trivy
-	scannedVulns, err := s.scanViaTrivy(ctx, uncachedPackages)
+	scanResult, err := s.scanViaTrivy(ctx, uncachedPackages, opts.ScanSecrets)
 	if err != nil {
 		return nil, err
 	}
 
 	// Update cache with new results
 	if s.cache != nil {
-		s.cacheResults(ctx, uncachedPackages, scannedVulns)
+		s.cacheResults(ctx, uncachedPackages, scanResult.vulns)
 	}
 
 	// Combine cached and scanned vulnerabilities
-	allVulns := append(cachedVulns, scannedVulns...)
+	allVulns := append(cachedVulns, scanResult.vulns...)
 
 	result := &ScanResult{
 		Summary:         NewScanSummary(allVulns, len(packages)),
 		Vulnerabilities: allVulns,
+		Secrets:         scanResult.secrets,
+		SecretSummary:   NewSecretSummary(scanResult.secrets),
 		ScannedAt:       time.Now(),
 		ScanTimeMs:      float64(time.Since(startTime).Milliseconds()),
 	}
 
 	// Apply severity filter if specified
-	if len(severityFilter) > 0 {
-		filtered := result.FilterBySeverity(severityFilter)
+	if len(opts.SeverityFilter) > 0 {
+		filtered := result.FilterBySeverity(opts.SeverityFilter)
 		return &filtered, nil
 	}
 
 	return result, nil
 }
 
+// scanTrivyResult holds the results from a Trivy scan.
+type scanTrivyResult struct {
+	vulns   []Vulnerability
+	secrets []Secret
+}
+
 // scanViaTrivy performs the full Trivy Twirp workflow.
-func (s *Scanner) scanViaTrivy(ctx context.Context, packages []Package) ([]Vulnerability, error) {
+func (s *Scanner) scanViaTrivy(ctx context.Context, packages []Package, scanSecrets bool) (*scanTrivyResult, error) {
 	// Generate IDs
 	blobID := generateBlobID(packages)
 	artifactID := generateArtifactID(blobID)
@@ -141,6 +160,7 @@ func (s *Scanner) scanViaTrivy(ctx context.Context, packages []Package) ([]Vulne
 		slog.String("blob_id", blobID),
 		slog.String("artifact_id", artifactID),
 		slog.Int("packages", len(packages)),
+		slog.Bool("scan_secrets", scanSecrets),
 	)
 
 	// Step 1: PutBlob
@@ -173,12 +193,17 @@ func (s *Scanner) scanViaTrivy(ctx context.Context, packages []Package) ([]Vulne
 	}
 
 	// Step 3: Scan
+	scanners := []string{"vuln"}
+	if scanSecrets {
+		scanners = append(scanners, "secret")
+	}
+
 	scanReq := TwirpScanRequest{
 		Target:     "dependency-scan",
 		ArtifactID: artifactID,
 		BlobIDs:    []string{blobID},
 		Options: TwirpScanOptions{
-			Scanners: []string{"vuln"},
+			Scanners: scanners,
 			PkgTypes: collectEcosystems(packages),
 		},
 	}
@@ -188,8 +213,10 @@ func (s *Scanner) scanViaTrivy(ctx context.Context, packages []Package) ([]Vulne
 		return nil, fmt.Errorf("failed to scan: %w", err)
 	}
 
-	// Convert Twirp results to our Vulnerability type
+	// Convert Twirp results to our types
 	var vulns []Vulnerability
+	var secrets []Secret
+
 	for _, result := range scanResp.Results {
 		ecosystem := result.Type
 		if ecosystem == "" {
@@ -198,13 +225,17 @@ func (s *Scanner) scanViaTrivy(ctx context.Context, packages []Package) ([]Vulne
 		for _, tv := range result.Vulnerabilities {
 			vulns = append(vulns, tv.ToVulnerability(ecosystem))
 		}
+		for _, ts := range result.Secrets {
+			secrets = append(secrets, ts.ToSecret(result.Target))
+		}
 	}
 
 	s.logger.Debug("trivy scan complete",
 		slog.Int("vulnerabilities", len(vulns)),
+		slog.Int("secrets", len(secrets)),
 	)
 
-	return vulns, nil
+	return &scanTrivyResult{vulns: vulns, secrets: secrets}, nil
 }
 
 // cacheResults stores scan results in cache, grouped by package.

@@ -99,6 +99,18 @@ type ScanRequest struct {
 	ScanSecrets    bool      `json:"scan_secrets,omitempty"`
 }
 
+// Secret represents a detected secret in scanned content.
+type Secret struct {
+	RuleID    string `json:"rule_id"`
+	Category  string `json:"category"`
+	Severity  string `json:"severity"`
+	Title     string `json:"title"`
+	Target    string `json:"target"`
+	StartLine int    `json:"start_line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
+	Match     string `json:"match,omitempty"`
+}
+
 // Validate checks that the request has valid packages and severity filters.
 func (r ScanRequest) Validate() error {
 	if len(r.Packages) == 0 {
@@ -184,8 +196,45 @@ func NewScanSummary(vulns []Vulnerability, packagesScanned int) ScanSummary {
 type ScanResult struct {
 	Summary         ScanSummary     `json:"summary"`
 	Vulnerabilities []Vulnerability `json:"vulnerabilities"`
+	Secrets         []Secret        `json:"secrets,omitempty"`
+	SecretSummary   *SecretSummary  `json:"secret_summary,omitempty"`
 	ScannedAt       time.Time       `json:"scanned_at"`
 	ScanTimeMs      float64         `json:"scan_time_ms"`
+}
+
+// SecretSummary provides counts of detected secrets by severity.
+type SecretSummary struct {
+	TotalSecrets int `json:"total_secrets"`
+	Critical     int `json:"critical"`
+	High         int `json:"high"`
+	Medium       int `json:"medium"`
+	Low          int `json:"low"`
+}
+
+// NewSecretSummary creates a summary from a list of secrets.
+func NewSecretSummary(secrets []Secret) *SecretSummary {
+	if len(secrets) == 0 {
+		return nil
+	}
+
+	summary := &SecretSummary{
+		TotalSecrets: len(secrets),
+	}
+
+	for _, s := range secrets {
+		switch s.Severity {
+		case SeverityCritical:
+			summary.Critical++
+		case SeverityHigh:
+			summary.High++
+		case SeverityMedium:
+			summary.Medium++
+		case SeverityLow:
+			summary.Low++
+		}
+	}
+
+	return summary
 }
 
 // FilterBySeverity returns a new ScanResult with only vulnerabilities matching the filter.
@@ -296,12 +345,38 @@ type TwirpVulnerability struct {
 	PkgType          string   `json:"PkgType,omitempty"`
 }
 
+// TwirpSecret represents a secret finding in the Twirp response.
+type TwirpSecret struct {
+	RuleID    string `json:"RuleID"`
+	Category  string `json:"Category"`
+	Severity  string `json:"Severity"`
+	Title     string `json:"Title"`
+	StartLine int    `json:"StartLine"`
+	EndLine   int    `json:"EndLine"`
+	Match     string `json:"Match"`
+}
+
 // TwirpResult represents a result in the Twirp response.
 type TwirpResult struct {
 	Target          string               `json:"Target"`
 	Class           string               `json:"Class,omitempty"`
 	Type            string               `json:"Type,omitempty"`
 	Vulnerabilities []TwirpVulnerability `json:"Vulnerabilities,omitempty"`
+	Secrets         []TwirpSecret        `json:"Secrets,omitempty"`
+}
+
+// ToSecret converts a Twirp secret to our Secret type.
+func (ts TwirpSecret) ToSecret(target string) Secret {
+	return Secret{
+		RuleID:    ts.RuleID,
+		Category:  ts.Category,
+		Severity:  ts.Severity,
+		Title:     ts.Title,
+		Target:    target,
+		StartLine: ts.StartLine,
+		EndLine:   ts.EndLine,
+		Match:     ts.Match,
+	}
 }
 
 // TwirpScanResponse is the response from the Scan endpoint.
