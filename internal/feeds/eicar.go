@@ -10,7 +10,7 @@ import (
 	"encoding/hex"
 	"time"
 
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 // EICAR test string (68 characters).

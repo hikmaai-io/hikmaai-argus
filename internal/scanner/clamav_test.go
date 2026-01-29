@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hikmaai-io/hikma-av/internal/config"
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/config"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 func TestNewClamAVScanner(t *testing.T) {

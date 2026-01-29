@@ -11,7 +11,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 const scanCachePrefix = "scan:"

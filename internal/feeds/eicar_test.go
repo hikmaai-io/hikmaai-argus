@@ -6,8 +6,8 @@ package feeds_test
 import (
 	"testing"
 
-	"github.com/hikmaai-io/hikma-av/internal/feeds"
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/feeds"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 // Known EICAR hashes.

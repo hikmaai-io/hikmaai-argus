@@ -6,7 +6,7 @@ package types_test
 import (
 	"testing"
 
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 func TestHashType_String(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 // EngineConfig holds configuration for the lookup engine.

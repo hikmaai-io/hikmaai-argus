@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 func TestScanCache_Put_Get(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hikmaai-io/hikma-av/internal/feeds"
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/feeds"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 func TestCSVFeed_Parse(t *testing.T) {

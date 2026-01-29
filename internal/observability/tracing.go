@@ -156,5 +156,5 @@ func ExtractSpanID(ctx context.Context) string {
 
 // StartSpan starts a new span with the given name.
 func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
-	return otel.Tracer("hikma-av").Start(ctx, name, opts...)
+	return otel.Tracer("hikmaai-argus").Start(ctx, name, opts...)
 }

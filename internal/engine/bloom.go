@@ -11,7 +11,7 @@ import (
 
 	"github.com/bits-and-blooms/bloom/v3"
 
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 // BloomConfig holds configuration for the Bloom filter.

@@ -1,5 +1,5 @@
 # ABOUTME: Grafana Tempo configuration for trace collection
-# ABOUTME: Receives OTLP traces from hikma-av
+# ABOUTME: Receives OTLP traces from hikmaai-argus
 
 server:
   http_listen_port: 3200

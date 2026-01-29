@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/hikmaai-io/hikma-av/internal/config"
-	"github.com/hikmaai-io/hikma-av/internal/engine"
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/config"
+	"github.com/hikmaai-io/hikmaai-argus/internal/engine"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 func newDBCmd() *cobra.Command {
@@ -106,7 +106,7 @@ func dbStats(ctx context.Context, dataDir string) error {
 	if stats.SignatureCount == 0 {
 		fmt.Println()
 		fmt.Println("Database is empty. Load signatures with:")
-		fmt.Println("  hikma-av feeds update")
+		fmt.Println("  hikmaai-argus feeds update")
 	}
 
 	return nil

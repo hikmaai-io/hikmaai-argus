@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/hikmaai-io/hikma-av/internal/observability"
+	"github.com/hikmaai-io/hikmaai-argus/internal/observability"
 )
 
 func TestNewTracerProvider_NoOp(t *testing.T) {
@@ -32,7 +32,7 @@ func TestNewTracerProvider_WithEndpoint(t *testing.T) {
 
 	cfg := observability.TracingConfig{
 		Enabled:     true,
-		ServiceName: "hikma-av-test",
+		ServiceName: "hikmaai-argus-test",
 		Endpoint:    "localhost:4317",
 		Insecure:    true,
 	}
@@ -58,7 +58,7 @@ func TestTracer_StartSpan(t *testing.T) {
 
 	cfg := observability.TracingConfig{
 		Enabled:     false, // Use no-op tracer for tests.
-		ServiceName: "hikma-av-test",
+		ServiceName: "hikmaai-argus-test",
 	}
 
 	tp, err := observability.NewTracerProvider(context.Background(), cfg)

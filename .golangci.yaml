@@ -1,4 +1,4 @@
-# ABOUTME: golangci-lint configuration for hikma-av project
+# ABOUTME: golangci-lint configuration for hikmaai-argus project
 # ABOUTME: Enforces code quality, error handling, and Go idioms
 
 run:
@@ -95,7 +95,7 @@ linters-settings:
     simplify: true
 
   goimports:
-    local-prefixes: github.com/hikmaai-io/hikma-av
+    local-prefixes: github.com/hikmaai-io/hikmaai-argus
 
   gosec:
     excludes:

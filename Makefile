@@ -1,4 +1,4 @@
-# ABOUTME: Main Makefile for hikma-av antivirus service
+# ABOUTME: Main Makefile for hikmaai-argus antivirus service
 # ABOUTME: Build, test, lint, and development workflow automation
 
 # Safety headers
@@ -15,8 +15,8 @@ MAKEFLAGS += --no-builtin-rules
 # ==============================================================================
 
 # Project
-PROJECT_NAME := hikma-av
-MODULE := github.com/hikmaai-io/hikma-av
+PROJECT_NAME := hikmaai-argus
+MODULE := github.com/hikmaai-io/hikmaai-argus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -28,11 +28,11 @@ LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION) -X main.gitSHA=$(GIT_SHA) 
 
 # Directories
 BIN_DIR := ./bin
-CMD_DIR := ./cmd/hikma-av
+CMD_DIR := ./cmd/hikmaai-argus
 COVERAGE_DIR := ./coverage
 
 # Docker
-DOCKER_IMAGE := hikmaai/hikma-av
+DOCKER_IMAGE := hikmaai/hikmaai-argus
 DOCKER_TAG ?= $(VERSION)
 
 # Tools

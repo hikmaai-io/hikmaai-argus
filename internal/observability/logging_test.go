@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hikmaai-io/hikma-av/internal/observability"
+	"github.com/hikmaai-io/hikmaai-argus/internal/observability"
 )
 
 func TestNewLogger_JSON(t *testing.T) {
@@ -155,7 +155,7 @@ func TestLoggerWithServiceInfo(t *testing.T) {
 	cfg := observability.LoggingConfig{
 		Level:       "info",
 		Format:      "json",
-		ServiceName: "hikma-av",
+		ServiceName: "hikmaai-argus",
 		Version:     "1.0.0",
 	}
 
@@ -168,8 +168,8 @@ func TestLoggerWithServiceInfo(t *testing.T) {
 		t.Fatalf("Failed to parse JSON log: %v", err)
 	}
 
-	if svc, ok := logEntry["service"].(string); !ok || svc != "hikma-av" {
-		t.Errorf("service = %v, want 'hikma-av'", logEntry["service"])
+	if svc, ok := logEntry["service"].(string); !ok || svc != "hikmaai-argus" {
+		t.Errorf("service = %v, want 'hikmaai-argus'", logEntry["service"])
 	}
 	if ver, ok := logEntry["version"].(string); !ok || ver != "1.0.0" {
 		t.Errorf("version = %v, want '1.0.0'", logEntry["version"])

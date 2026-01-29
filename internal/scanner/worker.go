@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hikmaai-io/hikma-av/internal/engine"
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/engine"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 // WorkerConfig holds configuration for the scan worker.

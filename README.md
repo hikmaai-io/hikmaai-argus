@@ -6,7 +6,7 @@
 
 A high-performance security scanning service combining **hash-based signature lookups**, **ClamAV malware detection**, and **Trivy vulnerability analysis**. Runs standalone or integrates with enterprise platforms via Redis Streams.
 
-Designed for the [HikmaAI](https://hikma.ai) platform with AS3 (Agent Skill Security Service) integration for automated skill scanning workflows.
+Designed for the [HikmaAI](https://hikma.ai) platform with Redis (Agent Skill Security Service) integration for automated skill scanning workflows.
 
 ---
 
@@ -14,7 +14,7 @@ Designed for the [HikmaAI](https://hikma.ai) platform with AS3 (Agent Skill Secu
 
 - **Multi-Engine Detection** - Hash lookups (O(1)), ClamAV malware scanning, Trivy vulnerability analysis
 - **Standalone Operation** - Single binary, no external dependencies required for basic usage
-- **Enterprise Ready** - AS3 integration via Redis Streams with horizontal scaling support
+- **Enterprise Ready** - Redis integration via Redis Streams with horizontal scaling support
 - **Privacy-First Trivy** - Only package metadata sent; no source code or file contents
 
 ---
@@ -26,8 +26,6 @@ Designed for the [HikmaAI](https://hikma.ai) platform with AS3 (Agent Skill Secu
 | [Quick Start](docs/quickstart.md) | Get started in 5 minutes |
 | [Architecture](docs/architecture.md) | System design and components |
 | [API Reference](docs/api-reference.md) | HTTP API and NATS messaging |
-| [AS3 Integration](docs/as3-integration.md) | Redis Streams protocol for enterprise |
-
 ---
 
 ## Installation
@@ -119,7 +117,7 @@ curl http://localhost:8080/api/v1/jobs/{job_id}
 │                                                                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐  │
 │  │    CLI      │  │  HTTP API   │  │    NATS     │  │   Redis   │  │
-│  │  (scan)     │  │  (REST)     │  │  (Request)  │  │  (AS3)    │  │
+│  │  (scan)     │  │  (REST)     │  │  (Request)  │  │  (tools)  │  │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬─────┘  │
 │         │                │                │               │         │
 │         ▼                ▼                ▼               ▼         │
@@ -169,7 +167,7 @@ curl http://localhost:8080/api/v1/jobs/{job_id}
 | `--data-dir` | Custom data directory |
 | `--http-addr` | HTTP listen address |
 | `--feeds-update` | Enable periodic feed updates |
-| `--argus-worker` | Enable AS3 integration |
+| `--argus-worker` | Enable Redis integration |
 
 ---
 
@@ -208,7 +206,7 @@ trivy:
     - HIGH
     - CRITICAL
 
-# AS3 integration (optional)
+# Redis integration (optional)
 redis:
   enabled: false
   addr: localhost:6379
@@ -223,9 +221,9 @@ See [examples/config.yaml](examples/config.yaml) for all options.
 
 ---
 
-## AS3 Integration (Enterprise)
+## Redis Integration (Enterprise)
 
-For integration with the HikmaAI AS3 platform:
+For integration with the HikmaAI Redis platform:
 
 ```bash
 hikmaai-argus daemon \
@@ -241,8 +239,6 @@ hikmaai-argus daemon \
 - Multi-tenant isolation via key prefix
 - Real-time job state for polling
 - Horizontal scaling support
-
-See [AS3 Integration Guide](docs/as3-integration.md) for details.
 
 ---
 

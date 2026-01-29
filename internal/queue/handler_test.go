@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/hikmaai-io/hikma-av/internal/engine"
-	"github.com/hikmaai-io/hikma-av/internal/feeds"
-	"github.com/hikmaai-io/hikma-av/internal/queue"
+	"github.com/hikmaai-io/hikmaai-argus/internal/engine"
+	"github.com/hikmaai-io/hikmaai-argus/internal/feeds"
+	"github.com/hikmaai-io/hikmaai-argus/internal/queue"
 )
 
 func TestScanRequest_JSON(t *testing.T) {

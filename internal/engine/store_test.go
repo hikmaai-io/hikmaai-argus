@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hikmaai-io/hikma-av/internal/engine"
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/engine"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 func TestStore_PutAndGet(t *testing.T) {

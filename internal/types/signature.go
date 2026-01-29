@@ -14,6 +14,8 @@ type ThreatType int
 const (
 	// ThreatTypeUnknown represents an unknown threat type.
 	ThreatTypeUnknown ThreatType = iota
+	// ThreatTypeMalware represents generic malware.
+	ThreatTypeMalware
 	// ThreatTypeTrojan represents trojan malware.
 	ThreatTypeTrojan
 	// ThreatTypeVirus represents a virus.
@@ -35,6 +37,8 @@ const (
 // String returns the string representation of the threat type.
 func (tt ThreatType) String() string {
 	switch tt {
+	case ThreatTypeMalware:
+		return "malware"
 	case ThreatTypeTrojan:
 		return "trojan"
 	case ThreatTypeVirus:

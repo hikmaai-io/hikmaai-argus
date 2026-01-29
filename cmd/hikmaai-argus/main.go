@@ -1,4 +1,4 @@
-// ABOUTME: Main entry point for hikma-av CLI
+// ABOUTME: Main entry point for hikmaai-argus CLI
 // ABOUTME: Initializes cobra root command and executes CLI
 
 package main

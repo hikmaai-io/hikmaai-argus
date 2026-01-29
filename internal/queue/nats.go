@@ -12,7 +12,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/hikmaai-io/hikma-av/internal/observability"
+	"github.com/hikmaai-io/hikmaai-argus/internal/observability"
 )
 
 // NATSConfig holds NATS connection configuration.
@@ -41,9 +41,9 @@ type NATSConfig struct {
 func DefaultNATSConfig() NATSConfig {
 	return NATSConfig{
 		URL:           "nats://localhost:4222",
-		Subject:       "hikma.av.scan",
-		QueueGroup:    "av-workers",
-		Name:          "hikma-av",
+		Subject:       "hikmaai.argus.scan",
+		QueueGroup:    "argus-workers",
+		Name:          "hikmaai-argus",
 		MaxReconnects: -1, // Unlimited.
 		ReconnectWait: 2 * time.Second,
 		Timeout:       5 * time.Second,

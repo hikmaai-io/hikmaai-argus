@@ -1,4 +1,4 @@
-# ABOUTME: Sample hash file for testing hikma-av scan
+# ABOUTME: Sample hash file for testing hikmaai-argus scan
 # ABOUTME: Contains EICAR test hash and clean samples
 
 # EICAR test file (should be detected as malware)

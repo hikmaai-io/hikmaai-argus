@@ -7,9 +7,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ClamAVDBFeed manages ClamAV database files for clamscan.
@@ -252,4 +255,74 @@ func parseCVDHeaderVersion(data []byte) (int, error) {
 	fmt.Sscanf(parts[2], "%d", &version)
 
 	return version, nil
+}
+
+// ReloadClamd sends a RELOAD command to clamd to pick up new database files.
+// This is only needed when using clamd mode (daemon), not clamscan mode.
+// address can be "unix:///var/run/clamav/clamd.ctl" or "tcp://localhost:3310"
+func ReloadClamd(ctx context.Context, address string) error {
+	if address == "" {
+		// Try clamdscan --reload as fallback.
+		return reloadClamdViaBinary(ctx)
+	}
+
+	// Parse address.
+	var network, addr string
+	if strings.HasPrefix(address, "unix://") {
+		network = "unix"
+		addr = strings.TrimPrefix(address, "unix://")
+	} else if strings.HasPrefix(address, "tcp://") {
+		network = "tcp"
+		addr = strings.TrimPrefix(address, "tcp://")
+	} else {
+		// Assume tcp if no prefix.
+		network = "tcp"
+		addr = address
+	}
+
+	// Connect to clamd.
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := dialer.DialContext(ctx, network, addr)
+	if err != nil {
+		// Fall back to clamdscan --reload.
+		return reloadClamdViaBinary(ctx)
+	}
+	defer conn.Close()
+
+	// Set deadline.
+	if deadline, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(deadline)
+	} else {
+		conn.SetDeadline(time.Now().Add(30 * time.Second))
+	}
+
+	// Send RELOAD command.
+	_, err = conn.Write([]byte("RELOAD\n"))
+	if err != nil {
+		return fmt.Errorf("sending RELOAD command: %w", err)
+	}
+
+	// Read response.
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return fmt.Errorf("reading RELOAD response: %w", err)
+	}
+
+	response := string(buf[:n])
+	if !strings.Contains(response, "RELOADING") {
+		return fmt.Errorf("unexpected RELOAD response: %s", response)
+	}
+
+	return nil
+}
+
+// reloadClamdViaBinary uses clamdscan --reload to trigger a database reload.
+func reloadClamdViaBinary(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "clamdscan", "--reload")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("clamdscan --reload failed: %w (output: %s)", err, string(output))
+	}
+	return nil
 }

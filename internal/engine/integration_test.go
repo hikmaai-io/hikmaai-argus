@@ -7,9 +7,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/hikmaai-io/hikma-av/internal/engine"
-	"github.com/hikmaai-io/hikma-av/internal/feeds"
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/engine"
+	"github.com/hikmaai-io/hikmaai-argus/internal/feeds"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 func TestIntegration_EICARDetection(t *testing.T) {

@@ -1,9 +1,9 @@
-# ABOUTME: Git ignore patterns for hikma-av project
+# ABOUTME: Git ignore patterns for hikmaai-argus project
 # ABOUTME: Excludes build artifacts, data directories, IDE files, and secrets
 
 # Binaries
 /bin/
-/hikma-av
+/hikmaai-argus
 *.exe
 *.exe~
 *.dll

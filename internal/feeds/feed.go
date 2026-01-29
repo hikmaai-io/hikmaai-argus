@@ -7,7 +7,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/hikmaai-io/hikma-av/internal/types"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 // Feed represents a signature feed source.
