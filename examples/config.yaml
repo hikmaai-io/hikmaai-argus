@@ -122,8 +122,8 @@ trivy:
   # Caching reduces redundant queries to Trivy server
   cache_ttl: 1h
 
-# Redis configuration for AS3 integration (OPTIONAL)
-# Required for Argus worker mode to receive tasks from AS3.
+# Redis configuration for Redis integration (OPTIONAL)
+# Required for Argus worker mode to receive tasks from Redis.
 # Disabled by default.
 redis:
   enabled: false
@@ -140,7 +140,7 @@ redis:
   write_timeout: 5s
 
 # GCS configuration for skill artifact storage (OPTIONAL)
-# Required for Argus worker mode to download skill archives from AS3.
+# Required for Argus worker mode to download skill archives from Redis.
 # Disabled by default.
 gcs:
   enabled: false
@@ -156,8 +156,8 @@ gcs:
   # Local directory for downloaded files
   download_dir: /tmp/argus/downloads
 
-# Argus worker configuration for AS3 integration (OPTIONAL)
-# Processes scan tasks from AS3 via Redis Streams.
+# Argus worker configuration for Redis integration (OPTIONAL)
+# Processes scan tasks from Redis via Redis Streams.
 # Disabled by default; requires Redis and GCS to be configured.
 argus_worker:
   enabled: false

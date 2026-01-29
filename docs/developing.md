@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide covers setting up a development environment, running tests, and contributing to HikmaArgus.
+This guide covers setting up a development environment, running tests, and contributing to HikmaAI Argus.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ This guide covers setting up a development environment, running tests, and contr
 - Make
 - Docker (optional, for services)
 - ClamAV (optional, for file scanning tests)
-- Redis (optional, for AS3 integration tests)
+- Redis (optional, for Redis integration tests)
 
 ## Setup
 
@@ -59,7 +59,7 @@ hikmaai-argus/
 │
 ├── internal/
 │   ├── api/               # HTTP handlers
-│   ├── argus/             # AS3 worker orchestrator
+│   ├── argus/             # Redis worker orchestrator
 │   ├── config/            # Configuration
 │   ├── engine/            # Lookup engine (Bloom + BadgerDB)
 │   ├── feeds/             # Signature feed sources
@@ -199,7 +199,7 @@ docker compose down
 # With feed updates
 ./bin/hikmaai-argus daemon --http-addr :8080 --feeds-update
 
-# With AS3 integration
+# With Redis integration
 ./bin/hikmaai-argus daemon \
   --http-addr :8080 \
   --argus-worker \
@@ -335,7 +335,7 @@ type EngineInterface interface {
 
 4. Wire into daemon in `cmd/hikmaai-argus/daemon.go`
 
-5. Add to Argus runner if needed for AS3 integration
+5. Add to Argus runner if needed for Redis integration
 
 ### Adding a New Feed Source
 

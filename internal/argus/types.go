@@ -1,5 +1,5 @@
 // ABOUTME: Type definitions for Argus worker task messages and scan results
-// ABOUTME: Aligned with AS3 integration spec for Redis-based communication
+// ABOUTME: Aligned with Redis integration spec for Redis-based communication
 
 package argus
 
@@ -51,7 +51,7 @@ func (s ScannerStatus) IsTerminal() bool {
 	return s == StatusCompleted || s == StatusFailed
 }
 
-// TaskMessage is the message received from AS3 via Redis Streams.
+// TaskMessage is the message received from Redis via Redis Streams.
 type TaskMessage struct {
 	// JobID is the unique identifier for this scan job.
 	JobID string `json:"job_id"`
@@ -62,7 +62,7 @@ type TaskMessage struct {
 	// OrganizationID for IDOR protection and path validation.
 	OrganizationID string `json:"organization_id"`
 
-	// ParentTaskID is the AS3 task reference for tracing.
+	// ParentTaskID is the Redis task reference for tracing.
 	ParentTaskID string `json:"parent_task_id"`
 
 	// GCSURI is the GCS path to the skill archive.

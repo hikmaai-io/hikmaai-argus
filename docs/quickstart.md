@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get HikmaArgus running in under 5 minutes. This guide covers installation, basic usage, and verification.
+Get HikmaAI Argus running in under 5 minutes. This guide covers installation, basic usage, and verification.
 
 ## Prerequisites
 
@@ -144,7 +144,7 @@ hikmaai-argus daemon --http-addr :8080
 # With automatic feed updates
 hikmaai-argus daemon --http-addr :8080 --feeds-update --feeds-interval 1h
 
-# Full enterprise mode (AS3 integration)
+# Full enterprise mode (Redis integration)
 hikmaai-argus daemon \
   --http-addr :8080 \
   --argus-worker \
@@ -320,7 +320,7 @@ sudo apt-get install clamav
 ### ClamAV Database Missing
 
 ```bash
-# Update ClamAV databases via HikmaArgus
+# Update ClamAV databases via hikmaai-argus
 hikmaai-argus feeds update --source clamav-db
 
 # Or use freshclam directly
@@ -350,7 +350,7 @@ docker run -d -p 6379:6379 redis:latest
 1. **Read the documentation:**
    - [Architecture](architecture.md) - System design and components
    - [API Reference](api-reference.md) - HTTP API documentation
-   - [AS3 Integration](as3-integration.md) - Enterprise integration guide
+   - [Redis Integration](Redis-integration.md) - Enterprise integration guide
 
 2. **Try advanced features:**
    ```bash

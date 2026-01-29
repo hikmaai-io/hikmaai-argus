@@ -1,6 +1,6 @@
 # API Reference
 
-HikmaArgus provides multiple interfaces for security scanning: HTTP REST API, NATS messaging, and Redis Streams for AS3 integration. This document covers all available endpoints and message formats.
+HikmaAI Argus provides multiple interfaces for security scanning: HTTP REST API, NATS messaging, and Redis Streams for Redis integration. This document covers all available endpoints and message formats.
 
 ## HTTP REST API
 
@@ -333,7 +333,7 @@ Poll for dependency scan results.
 
 ## NATS Messaging
 
-HikmaArgus supports NATS request/reply pattern for hash lookups.
+HikmaAI Argus supports NATS request/reply pattern for hash lookups.
 
 ### Configuration
 

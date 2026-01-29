@@ -1,12 +1,12 @@
-# HikmaArgus Architecture
+# HikmaAI Argus Architecture
 
 ## Overview
 
-HikmaArgus is a modular, high-performance security scanning service designed for threat detection across multiple dimensions: hash-based signature lookups, ClamAV malware analysis, and Trivy vulnerability scanning. Built with a stateless architecture, it supports standalone CLI operation, HTTP API, NATS messaging, and AS3 integration via Redis Streams.
+HikmaAI Argus is a modular, high-performance security scanning service designed for threat detection across multiple dimensions: hash-based signature lookups, ClamAV malware analysis, and Trivy vulnerability scanning. Built with a stateless architecture, it supports standalone CLI operation, HTTP API, NATS messaging, and Redis integration via Redis Streams.
 
 **Structure**: Organized by component (cmd/, internal/engine/, internal/scanner/, internal/trivy/, internal/argus/)
 **Coverage**: Hash lookups (Bloom + BadgerDB), ClamAV malware scanning, Trivy vulnerability analysis
-**Integration**: AS3 platform via Redis Streams for enterprise skill scanning workflows
+**Integration**: Redis platform via Redis Streams for enterprise skill scanning workflows
 
 ## High-Level Architecture
 
@@ -16,7 +16,7 @@ graph TB
         CLI[CLI Interface<br/>scan, daemon, feeds, db]
         HTTP[HTTP API<br/>REST endpoints]
         NATS[NATS Messaging<br/>Request/Reply]
-        Redis[Redis Streams<br/>AS3 Integration]
+        Redis[Redis Streams<br/>Redis Integration]
     end
 
     subgraph Engine[Lookup Engine]
@@ -172,7 +172,7 @@ Only package metadata is sent to the Trivy server:
 
 ### 4. Argus Worker (`internal/argus/`)
 
-Enterprise integration for AS3 platform via Redis Streams.
+Enterprise integration for Redis platform via Redis Streams.
 
 **Key Components:**
 
@@ -180,7 +180,7 @@ Enterprise integration for AS3 platform via Redis Streams.
   - Consumes tasks from Redis Streams (XREADGROUP)
   - Downloads skills from GCS
   - Runs parallel scanner execution
-  - Updates job state for AS3 polling
+  - Updates job state for Redis polling
   - Publishes completion signals
 
 - **`Runner`**: Scanner execution
@@ -196,7 +196,7 @@ Enterprise integration for AS3 platform via Redis Streams.
 **Task Flow:**
 
 ```
-1. AS3 publishes task to Redis Stream
+1. Redis publishes task to Redis Stream
    └─→ {job_id, org_id, gcs_uri, scanners}
 
 2. Worker consumes task (XREADGROUP)
@@ -218,7 +218,7 @@ Enterprise integration for AS3 platform via Redis Streams.
 
 ### 5. Redis Integration (`internal/redis/`)
 
-Redis client layer for AS3 integration with multi-tenant support.
+Redis client layer for Redis integration with multi-tenant support.
 
 **Key Components:**
 
@@ -244,6 +244,8 @@ Redis client layer for AS3 integration with multi-tenant support.
 {prefix}argus_task_queue        → Input task stream
 {prefix}argus_completion:{id}   → Completion signal stream
 ```
+
+> **See Also**: [Redis Integration Guide](redis-integration.md) for detailed configuration, usage examples, and troubleshooting.
 
 ### 6. GCS Integration (`internal/gcs/`)
 
@@ -330,7 +332,7 @@ type Config struct {
     Feeds       FeedsConfig   // Signature feeds
     ClamAV      ClamAVConfig  // ClamAV scanner
     Trivy       TrivyConfig   // Trivy scanner
-    Redis       RedisConfig   // AS3 integration
+    Redis       RedisConfig   // Redis integration
     GCS         GCSConfig     // Skill storage
     ArgusWorker ArgusWorkerConfig
 }
@@ -338,7 +340,7 @@ type Config struct {
 
 ### Standalone vs. Enterprise Mode
 
-| Feature | Standalone | Enterprise (AS3) |
+| Feature | Standalone | Enterprise (Redis) |
 |---------|------------|------------------|
 | Hash lookups | CLI/HTTP | CLI/HTTP |
 | ClamAV scanning | CLI/HTTP | CLI/HTTP/Argus |
@@ -387,10 +389,10 @@ type Config struct {
    └─→ Return status/result
 ```
 
-### AS3 Skill Scanning
+### Redis Skill Scanning
 
 ```
-1. AS3 publishes to Redis Stream
+1. Redis publishes to Redis Stream
    └─→ {job_id, gcs_uri, scanners: [trivy, clamav]}
 
 2. Argus Worker consumes (XREADGROUP)
@@ -578,7 +580,7 @@ hikmaai-argus scan --with-file /path/to/file
 hikmaai-argus daemon --http-addr :8080
 ```
 
-### AS3 Integration (Enterprise)
+### Redis Integration (Enterprise)
 
 ```bash
 hikmaai-argus daemon \
@@ -590,4 +592,4 @@ hikmaai-argus daemon \
 
 ## Conclusion
 
-HikmaArgus provides a flexible, high-performance security scanning platform that scales from CLI usage to enterprise deployments. The modular architecture allows easy extension with new scanners, feeds, and integrations while maintaining consistent security guarantees across all modes of operation.
+HikmaAI Argus provides a flexible, high-performance security scanning platform that scales from CLI usage to enterprise deployments. The modular architecture allows easy extension with new scanners, feeds, and integrations while maintaining consistent security guarantees across all modes of operation.

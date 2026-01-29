@@ -94,7 +94,7 @@ and signature feeds while the daemon is running.`,
 	cmd.Flags().DurationVar(&trivyCacheTTL, "trivy-cache-ttl", 1*time.Hour, "Trivy cache TTL")
 
 	// Argus worker flags.
-	cmd.Flags().BoolVar(&argusWorkerEnabled, "argus-worker", false, "enable Argus worker for AS3 integration")
+	cmd.Flags().BoolVar(&argusWorkerEnabled, "argus-worker", false, "enable Argus worker for Redis integration")
 	cmd.Flags().StringVar(&redisAddr, "redis-addr", "localhost:6379", "Redis server address")
 	cmd.Flags().StringVar(&redisPrefix, "redis-prefix", "argus:", "Redis key prefix")
 	cmd.Flags().StringVar(&gcsBucket, "gcs-bucket", "", "GCS bucket for skill downloads")
@@ -314,7 +314,7 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 	return nil
 }
 
-// initArgusWorker initializes the Argus worker for AS3 integration.
+// initArgusWorker initializes the Argus worker for Redis integration.
 func initArgusWorker(ctx context.Context, cfg daemonConfig, clamScanner *scanner.ClamAVScanner, logger *slog.Logger) (*argus.Worker, error) {
 	logger.Info("initializing Argus worker",
 		slog.String("redis_addr", cfg.RedisAddr),

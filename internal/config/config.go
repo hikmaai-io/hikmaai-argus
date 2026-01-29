@@ -50,13 +50,13 @@ type Config struct {
 	// Trivy dependency scanner configuration.
 	Trivy TrivyConfig `yaml:"trivy"`
 
-	// Redis configuration for AS3 integration.
+	// Redis configuration for Redis integration.
 	Redis RedisConfig `yaml:"redis"`
 
 	// GCS configuration for skill artifact storage.
 	GCS GCSConfig `yaml:"gcs"`
 
-	// ArgusWorker configuration for processing AS3 tasks.
+	// ArgusWorker configuration for processing Redis tasks.
 	ArgusWorker ArgusWorkerConfig `yaml:"argus_worker"`
 }
 
@@ -126,7 +126,7 @@ type ClamAVConfig struct {
 	CacheTTL time.Duration `yaml:"cache_ttl"`
 }
 
-// RedisConfig holds Redis connection settings for AS3 integration.
+// RedisConfig holds Redis connection settings for Redis integration.
 type RedisConfig struct {
 	// Enabled controls whether Redis integration is active.
 	Enabled bool `yaml:"enabled"`
@@ -173,7 +173,7 @@ type GCSConfig struct {
 	DownloadDir string `yaml:"download_dir"`
 }
 
-// ArgusWorkerConfig holds Argus worker settings for AS3 integration.
+// ArgusWorkerConfig holds Argus worker settings for Redis integration.
 type ArgusWorkerConfig struct {
 	// Enabled controls whether Argus worker is active.
 	Enabled bool `yaml:"enabled"`
