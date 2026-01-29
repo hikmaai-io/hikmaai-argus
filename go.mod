@@ -1,7 +1,7 @@
-// ABOUTME: Go module definition for hikma-av antivirus service
+// ABOUTME: Go module definition for hikmaai-argus antivirus service
 // ABOUTME: Signature-based malware detection with bloom filter and BadgerDB
 
-module github.com/hikmaai-io/hikma-av
+module github.com/hikmaai-io/hikmaai-argus
 
 go 1.24.0
 
@@ -18,6 +18,7 @@ require (
 )
 
 require (
+	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
