@@ -17,12 +17,16 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/hikmaai-io/hikmaai-argus/internal/api"
+	"github.com/hikmaai-io/hikmaai-argus/internal/argus"
 	"github.com/hikmaai-io/hikmaai-argus/internal/config"
 	"github.com/hikmaai-io/hikmaai-argus/internal/engine"
 	"github.com/hikmaai-io/hikmaai-argus/internal/feeds"
+	"github.com/hikmaai-io/hikmaai-argus/internal/gcs"
 	"github.com/hikmaai-io/hikmaai-argus/internal/observability"
+	internalredis "github.com/hikmaai-io/hikmaai-argus/internal/redis"
 	"github.com/hikmaai-io/hikmaai-argus/internal/scanner"
 	"github.com/hikmaai-io/hikmaai-argus/internal/trivy"
+	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
 func newDaemonCmd() *cobra.Command {
@@ -36,6 +40,12 @@ func newDaemonCmd() *cobra.Command {
 		feedsUpdateInterval time.Duration
 		trivyServerURL      string
 		trivyCacheTTL       time.Duration
+		// Argus worker flags.
+		argusWorkerEnabled bool
+		redisAddr          string
+		redisPrefix        string
+		gcsBucket          string
+		gcsDownloadDir     string
 	)
 
 	cmd := &cobra.Command{
@@ -64,6 +74,11 @@ and signature feeds while the daemon is running.`,
 				FeedsUpdateInterval: feedsUpdateInterval,
 				TrivyServerURL:      trivyServerURL,
 				TrivyCacheTTL:       trivyCacheTTL,
+				ArgusWorkerEnabled:  argusWorkerEnabled,
+				RedisAddr:           redisAddr,
+				RedisPrefix:         redisPrefix,
+				GCSBucket:           gcsBucket,
+				GCSDownloadDir:      gcsDownloadDir,
 			})
 		},
 	}
@@ -77,6 +92,13 @@ and signature feeds while the daemon is running.`,
 	cmd.Flags().DurationVar(&feedsUpdateInterval, "feeds-interval", 1*time.Hour, "feed update interval")
 	cmd.Flags().StringVar(&trivyServerURL, "trivy-server", "", "Trivy server URL (e.g., http://trivy:4954)")
 	cmd.Flags().DurationVar(&trivyCacheTTL, "trivy-cache-ttl", 1*time.Hour, "Trivy cache TTL")
+
+	// Argus worker flags.
+	cmd.Flags().BoolVar(&argusWorkerEnabled, "argus-worker", false, "enable Argus worker for AS3 integration")
+	cmd.Flags().StringVar(&redisAddr, "redis-addr", "localhost:6379", "Redis server address")
+	cmd.Flags().StringVar(&redisPrefix, "redis-prefix", "argus:", "Redis key prefix")
+	cmd.Flags().StringVar(&gcsBucket, "gcs-bucket", "", "GCS bucket for skill downloads")
+	cmd.Flags().StringVar(&gcsDownloadDir, "gcs-download-dir", "/tmp/argus/downloads", "local directory for GCS downloads")
 
 	return cmd
 }
@@ -92,6 +114,12 @@ type daemonConfig struct {
 	FeedsUpdateInterval time.Duration
 	TrivyServerURL      string
 	TrivyCacheTTL       time.Duration
+	// Argus worker settings.
+	ArgusWorkerEnabled bool
+	RedisAddr          string
+	RedisPrefix        string
+	GCSBucket          string
+	GCSDownloadDir     string
 }
 
 func runDaemon(ctx context.Context, cfg daemonConfig) error {
@@ -238,6 +266,20 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 		go runFeedsWorker(workerCtx, cfg, logger)
 	}
 
+	// Start Argus worker if enabled.
+	var argusWorker *argus.Worker
+	if cfg.ArgusWorkerEnabled {
+		var err error
+		argusWorker, err = initArgusWorker(workerCtx, cfg, clamScanner, logger)
+		if err != nil {
+			logger.Error("failed to initialize Argus worker", slog.String("error", err.Error()))
+		} else {
+			if err := argusWorker.Start(workerCtx); err != nil {
+				logger.Error("failed to start Argus worker", slog.String("error", err.Error()))
+			}
+		}
+	}
+
 	// TODO: Connect to NATS and start message handler.
 
 	// Wait for shutdown signal.
@@ -259,6 +301,10 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 
 	worker.Stop()
 
+	if argusWorker != nil {
+		argusWorker.Stop()
+	}
+
 	if trivyCache != nil {
 		trivyCache.Close()
 	}
@@ -266,6 +312,100 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 	logger.Info("daemon stopped")
 
 	return nil
+}
+
+// initArgusWorker initializes the Argus worker for AS3 integration.
+func initArgusWorker(ctx context.Context, cfg daemonConfig, clamScanner *scanner.ClamAVScanner, logger *slog.Logger) (*argus.Worker, error) {
+	logger.Info("initializing Argus worker",
+		slog.String("redis_addr", cfg.RedisAddr),
+		slog.String("redis_prefix", cfg.RedisPrefix),
+		slog.String("gcs_bucket", cfg.GCSBucket),
+	)
+
+	// Create Redis client.
+	redisClient, err := internalredis.NewClient(internalredis.Config{
+		Addr:         cfg.RedisAddr,
+		Prefix:       cfg.RedisPrefix,
+		PoolSize:     10,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating redis client: %w", err)
+	}
+
+	// Create GCS client.
+	var gcsClient *gcs.Client
+	if cfg.GCSBucket != "" {
+		gcsClient, err = gcs.NewClient(ctx, gcs.Config{
+			Bucket:      cfg.GCSBucket,
+			DownloadDir: cfg.GCSDownloadDir,
+		})
+		if err != nil {
+			_ = redisClient.Close()
+			return nil, fmt.Errorf("creating gcs client: %w", err)
+		}
+	}
+
+	// Create Trivy scanner for Argus (local mode).
+	trivyScanner := trivy.NewUnifiedScanner(&config.TrivyConfig{
+		Mode:    "local",
+		Binary:  "trivy",
+		Timeout: 5 * time.Minute,
+	})
+
+	// Create scanner runner.
+	runner := argus.NewRunner(argus.RunnerConfig{
+		TrivyScanner:  trivyScanner,
+		ClamAVScanner: &clamAVScannerAdapter{scanner: clamScanner},
+	})
+
+	// Get hostname for consumer name.
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "argus-worker"
+	}
+
+	// Create worker.
+	worker, err := argus.NewWorker(
+		argus.WorkerConfig{
+			TaskQueue:         "argus_task_queue",
+			ConsumerGroup:     "argus-workers",
+			ConsumerName:      hostname,
+			CompletionPrefix:  "argus_completion",
+			Workers:           2,
+			DefaultTimeout:    15 * time.Minute,
+			MaxRetries:        3,
+			CleanupOnComplete: true,
+			StateTTL:          7 * 24 * time.Hour,
+		},
+		redisClient,
+		gcsClient,
+		runner,
+		logger,
+	)
+	if err != nil {
+		_ = redisClient.Close()
+		if gcsClient != nil {
+			_ = gcsClient.Close()
+		}
+		return nil, fmt.Errorf("creating argus worker: %w", err)
+	}
+
+	return worker, nil
+}
+
+// clamAVScannerAdapter adapts ClamAVScanner to the argus.ClamAVScanner interface.
+type clamAVScannerAdapter struct {
+	scanner *scanner.ClamAVScanner
+}
+
+func (a *clamAVScannerAdapter) ScanFile(ctx context.Context, path string) (*types.ScanResult, error) {
+	return a.scanner.ScanFile(ctx, path)
+}
+
+func (a *clamAVScannerAdapter) ScanDirectory(ctx context.Context, path string) ([]*types.ScanResult, error) {
+	return a.scanner.ScanDir(ctx, path, true)
 }
 
 // runFeedsWorker periodically updates feeds (ClamAV databases and signatures).

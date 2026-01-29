@@ -7,7 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	internalredis "github.com/hikmaai-io/hikmaai-argus/internal/redis"
 )
+
+// ToRedisConfig converts RedisConfig to the internal redis.Config type.
+func (c *RedisConfig) ToRedisConfig() internalredis.Config {
+	return internalredis.Config{
+		Addr:         c.Addr,
+		Password:     c.Password,
+		DB:           c.DB,
+		Prefix:       c.Prefix,
+		PoolSize:     c.PoolSize,
+		ReadTimeout:  c.ReadTimeout,
+		WriteTimeout: c.WriteTimeout,
+	}
+}
 
 // Config holds the complete configuration for hikmaai-argus.
 type Config struct {
@@ -34,6 +49,15 @@ type Config struct {
 
 	// Trivy dependency scanner configuration.
 	Trivy TrivyConfig `yaml:"trivy"`
+
+	// Redis configuration for AS3 integration.
+	Redis RedisConfig `yaml:"redis"`
+
+	// GCS configuration for skill artifact storage.
+	GCS GCSConfig `yaml:"gcs"`
+
+	// ArgusWorker configuration for processing AS3 tasks.
+	ArgusWorker ArgusWorkerConfig `yaml:"argus_worker"`
 }
 
 // NATSConfig holds NATS connection settings.
@@ -100,6 +124,86 @@ type ClamAVConfig struct {
 
 	// CacheTTL is the time-to-live for cached scan results.
 	CacheTTL time.Duration `yaml:"cache_ttl"`
+}
+
+// RedisConfig holds Redis connection settings for AS3 integration.
+type RedisConfig struct {
+	// Enabled controls whether Redis integration is active.
+	Enabled bool `yaml:"enabled"`
+
+	// Addr is the Redis server address (host:port).
+	Addr string `yaml:"addr"`
+
+	// Password for Redis authentication (optional).
+	Password string `yaml:"password"`
+
+	// DB is the Redis database number.
+	DB int `yaml:"db"`
+
+	// Prefix is prepended to all keys for multi-tenant isolation.
+	// Example: "argus:" results in keys like "argus:job_state:123".
+	Prefix string `yaml:"prefix"`
+
+	// PoolSize is the number of connections in the pool.
+	PoolSize int `yaml:"pool_size"`
+
+	// ReadTimeout for Redis operations.
+	ReadTimeout time.Duration `yaml:"read_timeout"`
+
+	// WriteTimeout for Redis operations.
+	WriteTimeout time.Duration `yaml:"write_timeout"`
+}
+
+// GCSConfig holds GCS client settings for skill artifact storage.
+type GCSConfig struct {
+	// Enabled controls whether GCS integration is active.
+	Enabled bool `yaml:"enabled"`
+
+	// Bucket is the GCS bucket name.
+	Bucket string `yaml:"bucket"`
+
+	// ProjectID is the GCP project ID (optional for ADC).
+	ProjectID string `yaml:"project_id"`
+
+	// CredentialsFile is the path to service account JSON (optional).
+	// If empty, uses Application Default Credentials (ADC).
+	CredentialsFile string `yaml:"credentials_file"`
+
+	// DownloadDir is the local directory for downloaded files.
+	DownloadDir string `yaml:"download_dir"`
+}
+
+// ArgusWorkerConfig holds Argus worker settings for AS3 integration.
+type ArgusWorkerConfig struct {
+	// Enabled controls whether Argus worker is active.
+	Enabled bool `yaml:"enabled"`
+
+	// TaskQueue is the Redis stream name for incoming tasks.
+	TaskQueue string `yaml:"task_queue"`
+
+	// ConsumerGroup is the consumer group name for scaling.
+	ConsumerGroup string `yaml:"consumer_group"`
+
+	// ConsumerName is this instance's consumer name.
+	ConsumerName string `yaml:"consumer_name"`
+
+	// CompletionPrefix is the prefix for completion signal streams.
+	CompletionPrefix string `yaml:"completion_prefix"`
+
+	// Workers is the number of concurrent scan workers.
+	Workers int `yaml:"workers"`
+
+	// DefaultTimeout for scan operations.
+	DefaultTimeout time.Duration `yaml:"default_timeout"`
+
+	// MaxRetries before giving up on a task.
+	MaxRetries int `yaml:"max_retries"`
+
+	// CleanupOnComplete removes temp files after scan.
+	CleanupOnComplete bool `yaml:"cleanup_on_complete"`
+
+	// StateTTL is the TTL for job state entries (default: 7 days).
+	StateTTL time.Duration `yaml:"state_ttl"`
 }
 
 // TrivyConfig holds Trivy dependency scanner settings.
@@ -194,6 +298,35 @@ func DefaultConfig() *Config {
 			SupportedEcosystems: []string{"pip", "npm", "gomod", "cargo", "composer"},
 			Workers:             2,
 			CacheTTL:            1 * time.Hour,
+		},
+		Redis: RedisConfig{
+			Enabled:      false, // Disabled by default
+			Addr:         "localhost:6379",
+			Password:     "",
+			DB:           0,
+			Prefix:       "argus:",
+			PoolSize:     10,
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 5 * time.Second,
+		},
+		GCS: GCSConfig{
+			Enabled:         false, // Disabled by default
+			Bucket:          "",
+			ProjectID:       "",
+			CredentialsFile: "",
+			DownloadDir:     "/tmp/argus/downloads",
+		},
+		ArgusWorker: ArgusWorkerConfig{
+			Enabled:           false, // Disabled by default
+			TaskQueue:         "argus_task_queue",
+			ConsumerGroup:     "argus-workers",
+			ConsumerName:      "", // Auto-generated from hostname
+			CompletionPrefix:  "argus_completion",
+			Workers:           2,
+			DefaultTimeout:    15 * time.Minute,
+			MaxRetries:        3,
+			CleanupOnComplete: true,
+			StateTTL:          7 * 24 * time.Hour, // 7 days
 		},
 	}
 }

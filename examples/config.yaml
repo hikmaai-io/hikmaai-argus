@@ -121,3 +121,70 @@ trivy:
   # Cache TTL for per-package vulnerability results
   # Caching reduces redundant queries to Trivy server
   cache_ttl: 1h
+
+# Redis configuration for AS3 integration (OPTIONAL)
+# Required for Argus worker mode to receive tasks from AS3.
+# Disabled by default.
+redis:
+  enabled: false
+  addr: localhost:6379
+  # password: ""
+  db: 0
+
+  # Key prefix for multi-tenant isolation
+  # All keys will be prefixed: argus:job_state:123, argus:task_queue, etc.
+  prefix: "argus:"
+
+  pool_size: 10
+  read_timeout: 5s
+  write_timeout: 5s
+
+# GCS configuration for skill artifact storage (OPTIONAL)
+# Required for Argus worker mode to download skill archives from AS3.
+# Disabled by default.
+gcs:
+  enabled: false
+  # GCS bucket name for skill archives
+  # bucket: hikma-skills
+
+  # GCP project ID (optional if using ADC)
+  # project_id: hikmaai-prod
+
+  # Service account credentials file (optional, uses ADC if empty)
+  # credentials_file: /path/to/service-account.json
+
+  # Local directory for downloaded files
+  download_dir: /tmp/argus/downloads
+
+# Argus worker configuration for AS3 integration (OPTIONAL)
+# Processes scan tasks from AS3 via Redis Streams.
+# Disabled by default; requires Redis and GCS to be configured.
+argus_worker:
+  enabled: false
+
+  # Redis stream name for incoming tasks
+  task_queue: argus_task_queue
+
+  # Consumer group name for horizontal scaling
+  consumer_group: argus-workers
+
+  # Consumer name (auto-generated from hostname if empty)
+  # consumer_name: argus-1
+
+  # Prefix for completion signal streams
+  completion_prefix: argus_completion
+
+  # Number of concurrent scan workers
+  workers: 2
+
+  # Default timeout for scan operations
+  default_timeout: 15m
+
+  # Maximum retries before giving up on a task
+  max_retries: 3
+
+  # Remove temp files after scan completes
+  cleanup_on_complete: true
+
+  # TTL for job state entries (7 days default)
+  state_ttl: 168h
