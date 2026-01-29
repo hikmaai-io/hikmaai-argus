@@ -107,9 +107,23 @@ type TrivyConfig struct {
 	// Enabled controls whether Trivy scanning is available.
 	Enabled bool `yaml:"enabled"`
 
-	// ServerURL is the Trivy server Twirp endpoint.
+	// Mode selects the scanner mode: "local" (default) or "server".
+	// local: Uses the trivy binary directly (requires local trivy installation).
+	// server: Connects to a remote Trivy server via Twirp (requires ServerURL).
+	Mode string `yaml:"mode"`
+
+	// Binary is the path to the trivy binary (only for local mode).
+	Binary string `yaml:"binary"`
+
+	// ServerURL is the Trivy server Twirp endpoint (only for server mode).
 	// Example: "http://trivy-server:4954"
 	ServerURL string `yaml:"server_url"`
+
+	// CacheDir is the local cache directory for trivy databases (local mode only).
+	CacheDir string `yaml:"cache_dir"`
+
+	// SkipDBUpdate skips updating the vulnerability database (local mode only).
+	SkipDBUpdate bool `yaml:"skip_db_update"`
 
 	// Timeout for scan operations.
 	Timeout time.Duration `yaml:"timeout"`
@@ -169,9 +183,13 @@ func DefaultConfig() *Config {
 			CacheTTL:    24 * time.Hour,
 		},
 		Trivy: TrivyConfig{
-			Enabled:             false,  // Disabled by default; set ServerURL to enable
-			ServerURL:           "",     // Must be set to enable
-			Timeout:             2 * time.Minute,
+			Enabled:             false,   // Disabled by default
+			Mode:                "local", // Use local trivy binary by default
+			Binary:              "trivy",
+			ServerURL:           "",      // Set for server mode
+			CacheDir:            "",      // Uses trivy default
+			SkipDBUpdate:        false,
+			Timeout:             5 * time.Minute,
 			DefaultSeverities:   []string{"HIGH", "CRITICAL"},
 			SupportedEcosystems: []string{"pip", "npm", "gomod", "cargo", "composer"},
 			Workers:             2,
