@@ -1,225 +1,255 @@
-# HikmaAV
+# HikmaArgus
 
-A stateless, signature-based antivirus service with fast hash lookups using a two-tier approach: Bloom filter for quick rejection followed by BadgerDB for confirmed lookups.
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Go 1.23+](https://img.shields.io/badge/go-1.23+-blue.svg)](https://go.dev/dl/)
+[![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)]()
 
-## Features
+A high-performance security scanning service combining **hash-based signature lookups**, **ClamAV malware detection**, and **Trivy vulnerability analysis**. Runs standalone or integrates with enterprise platforms via Redis Streams.
 
-- **Standalone Operation**: Single binary, no external dependencies required
-- **Fast Hash Lookups**: O(1) rejection via Bloom filter, O(1) lookup via BadgerDB
-- **Multiple Hash Types**: Supports SHA256, SHA1, and MD5
-- **NATS Messaging** (optional): Request/reply pattern with queue groups for load balancing
-- **Observability** (optional): OpenTelemetry tracing (Tempo) and structured logging (Loki)
-- **CLI & Daemon Modes**: Direct database access or daemon with NATS messaging
-- **Feed Support**: EICAR test signatures, CSV feeds (abuse.ch format)
+Designed for the [HikmaAI](https://hikma.ai) platform with AS3 (Agent Skill Security Service) integration for automated skill scanning workflows.
+
+---
+
+## Highlights
+
+- **Multi-Engine Detection** - Hash lookups (O(1)), ClamAV malware scanning, Trivy vulnerability analysis
+- **Standalone Operation** - Single binary, no external dependencies required for basic usage
+- **Enterprise Ready** - AS3 integration via Redis Streams with horizontal scaling support
+- **Privacy-First Trivy** - Only package metadata sent; no source code or file contents
+
+---
+
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [Quick Start](docs/quickstart.md) | Get started in 5 minutes |
+| [Architecture](docs/architecture.md) | System design and components |
+| [API Reference](docs/api-reference.md) | HTTP API and NATS messaging |
+| [AS3 Integration](docs/as3-integration.md) | Redis Streams protocol for enterprise |
+
+---
+
+## Installation
+
+**Prerequisites:** Go 1.23+ and Make
+
+```bash
+# Clone and build
+git clone https://github.com/hikmaai-io/hikmaai-argus.git
+cd hikmaai-argus
+make build
+
+# Verify
+./bin/hikmaai-argus version
+```
+
+<details>
+<summary><strong>Optional: ClamAV (for file scanning)</strong></summary>
+
+```bash
+# macOS
+brew install clamav
+
+# Ubuntu/Debian
+sudo apt-get install clamav
+
+# Initialize databases
+hikmaai-argus feeds update --source clamav-db
+```
+
+</details>
+
+---
+
+## Quick Start
+
+### Hash Lookup (No Dependencies)
+
+```bash
+# Load EICAR test signatures
+hikmaai-argus feeds update --source eicar
+
+# Scan EICAR hash
+hikmaai-argus scan 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
+
+# Output:
+# Hash:   275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f (sha256)
+# Status: malware
+# Detection: EICAR-Test-File
+# Lookup:  0.15ms (bloom=true)
+```
+
+### File Scanning (Requires ClamAV)
+
+```bash
+# Scan a file
+hikmaai-argus scan --with-file /path/to/suspicious.exe
+
+# Scan directory recursively
+hikmaai-argus scan --with-file /path/to/samples/ --recursive
+
+# Output as JSON
+hikmaai-argus scan --with-file /path/to/file.exe --json
+```
+
+### HTTP API
+
+```bash
+# Start daemon
+hikmaai-argus daemon --http-addr :8080
+
+# Hash lookup
+curl http://localhost:8080/api/v1/files/275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
+
+# Upload file for scanning
+curl -X POST -F "file=@suspicious.exe" http://localhost:8080/api/v1/files
+
+# Poll job result
+curl http://localhost:8080/api/v1/jobs/{job_id}
+```
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    hikma-av binary                               │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-│  │  daemon cmd  │  │   scan cmd   │  │      db cmd          │  │
-│  │  (service)   │  │   (query)    │  │  (debug/inspect)     │  │
-│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
-│         │                │                    │                  │
-│         ▼                ▼                    ▼                  │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │                    Lookup Engine                             ││
-│  │  Bloom (atomic.Ptr) → BadgerDB (local)                      ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        hikmaai-argus                                │
+│                                                                     │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐  │
+│  │    CLI      │  │  HTTP API   │  │    NATS     │  │   Redis   │  │
+│  │  (scan)     │  │  (REST)     │  │  (Request)  │  │  (AS3)    │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬─────┘  │
+│         │                │                │               │         │
+│         ▼                ▼                ▼               ▼         │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                    Lookup Engine                             │   │
+│  │  Bloom Filter (O(1) rejection) → BadgerDB (signature store)  │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│         │                                                           │
+│         ▼                                                           │
+│  ┌──────────────────────┐  ┌──────────────────────┐                │
+│  │   ClamAV Scanner     │  │   Trivy Scanner      │                │
+│  │   (malware)          │  │   (vulnerabilities)  │                │
+│  └──────────────────────┘  └──────────────────────┘                │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+---
 
-**No external dependencies required** - HikmaAV works standalone with just the binary and a data directory. NATS, Grafana, Loki, and Tempo are all optional.
+## Security Scanners
 
-### Build
+| Scanner | Detection Method | Scope | Requirements |
+|---------|------------------|-------|--------------|
+| **Hash Lookup** | Bloom + BadgerDB | Known malware hashes | None |
+| **ClamAV** | Signature matching | File content | ClamAV installed |
+| **Trivy** | Vulnerability DB | Package dependencies | Trivy binary or server |
 
-```bash
-# Clone the repository
-git clone https://github.com/hikmaai-io/hikma-av.git
-cd hikma-av
-
-# Build the binary
-make build
-
-# Or install directly
-make install
-```
-
-### Test the Engine
-
-The simplest way to test the engine is using the built-in EICAR test signatures.
-
-```bash
-# Build the binary
-make build
-
-# Scan the EICAR test hash (should detect as malware)
-./bin/hikma-av scan 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
-
-# Expected output:
-# Hash:   275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f (sha256)
-# Status: unknown
-# Lookup:  0.123ms (bloom=false)
-```
-
-Note: The scan will return "unknown" because no signatures are loaded yet. To test with EICAR detection, you need to load signatures first (see [Loading EICAR Signatures](#loading-eicar-signatures)).
-
-### Loading EICAR Signatures
-
-For a complete test with EICAR detection, use the Go test suite:
-
-```bash
-# Run the integration tests (includes EICAR detection)
-go test -v ./internal/engine/... -run Integration
-
-# Example output:
-# === RUN   TestIntegration_EICARDetection
-# --- PASS: TestIntegration_EICARDetection (0.01s)
-```
-
-### Programmatic Usage
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-
-    "github.com/hikmaai-io/hikma-av/internal/engine"
-    "github.com/hikmaai-io/hikma-av/internal/feeds"
-    "github.com/hikmaai-io/hikma-av/internal/types"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // Create engine with in-memory storage (for testing)
-    eng, err := engine.NewEngine(engine.EngineConfig{
-        StoreConfig: engine.StoreConfig{
-            InMemory: true, // Use Path: "/path/to/data" for persistence
-        },
-        BloomConfig: engine.BloomConfig{
-            ExpectedItems:     10_000_000,
-            FalsePositiveRate: 0.001,
-        },
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer eng.Close()
-
-    // Load EICAR test signatures
-    eicarSigs := feeds.EICARSignatures()
-    if err := eng.BatchAddSignatures(ctx, eicarSigs); err != nil {
-        log.Fatal(err)
-    }
-
-    // Scan the EICAR hash
-    hash, _ := types.ParseHash("275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f")
-    result, err := eng.Lookup(ctx, hash)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Printf("Status: %s\n", result.Status)
-    if result.Signature != nil {
-        fmt.Printf("Detection: %s\n", result.Signature.DetectionName)
-    }
-    // Output:
-    // Status: malware
-    // Detection: EICAR-Test-File
-}
-```
+---
 
 ## CLI Reference
 
-### Scan Command
+| Command | Description |
+|---------|-------------|
+| `scan <hash>` | Fast hash lookup |
+| `scan --with-file <path>` | ClamAV file scan |
+| `scan --batch "hash1,hash2"` | Multiple hash lookup |
+| `daemon` | Run as HTTP/NATS service |
+| `feeds update` | Update signature databases |
+| `feeds list` | List configured feeds |
+| `db stats` | Show database statistics |
+| `version` | Show version info |
 
-```bash
-# Scan a single hash
-hikma-av scan <sha256|sha1|md5>
+### Common Options
 
-# Scan from file (one hash per line)
-hikma-av scan --file hashes.txt
+| Option | Description |
+|--------|-------------|
+| `--json` | Output as JSON |
+| `--data-dir` | Custom data directory |
+| `--http-addr` | HTTP listen address |
+| `--feeds-update` | Enable periodic feed updates |
+| `--argus-worker` | Enable AS3 integration |
 
-# Scan multiple hashes
-hikma-av scan --batch "hash1,hash2,hash3"
-
-# Output as JSON
-hikma-av scan --json 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
-```
-
-### Daemon Command
-
-```bash
-# Run in foreground
-hikma-av daemon
-
-# With custom data directory
-hikma-av daemon --data-dir /var/lib/hikma-av
-
-# With custom NATS URL
-hikma-av daemon --nats-url nats://nats.example.com:4222
-```
-
-### Database Commands
-
-```bash
-# Show database statistics
-hikma-av db stats
-
-# Get signature details for a hash
-hikma-av db get 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
-
-# Trigger compaction
-hikma-av db compact
-```
-
-### Other Commands
-
-```bash
-# Show version
-hikma-av version
-
-# Show daemon status
-hikma-av status
-
-# List configured feeds
-hikma-av feeds list
-```
+---
 
 ## Configuration
 
-Copy the example configuration and customize:
+```yaml
+# ~/.config/hikmaai-argus/config.yaml
 
-```bash
-mkdir -p ~/.config/hikma-av
-cp examples/config.yaml ~/.config/hikma-av/config.yaml
+# Data directories
+data_dir: data/hikmaaidb
+clamdb_dir: data/clamdb
+
+# Logging
+log:
+  level: info
+  format: text
+
+# Signature feeds
+feeds:
+  update_interval: 1h
+  sources:
+    - eicar
+    - clamav-db
+
+# ClamAV scanner (optional)
+clamav:
+  enabled: false
+  mode: clamscan
+  timeout: 5m
+
+# Trivy scanner (optional)
+trivy:
+  enabled: false
+  mode: local
+  default_severities:
+    - HIGH
+    - CRITICAL
+
+# AS3 integration (optional)
+redis:
+  enabled: false
+  addr: localhost:6379
+  prefix: "argus:"
+
+gcs:
+  enabled: false
+  bucket: hikma-skills
 ```
 
 See [examples/config.yaml](examples/config.yaml) for all options.
 
-## Development
+---
 
-### Prerequisites
+## AS3 Integration (Enterprise)
 
-- Go 1.23+
-- Make
-- Docker (for local services)
-
-### Setup
+For integration with the HikmaAI AS3 platform:
 
 ```bash
-# Install development tools
-make tools
+hikmaai-argus daemon \
+  --argus-worker \
+  --redis-addr redis:6379 \
+  --redis-prefix "prod:" \
+  --gcs-bucket hikma-skills
+```
 
-# Download dependencies
+**Features:**
+- Redis Streams for task queue (XREADGROUP consumer groups)
+- GCS integration for skill archive downloads
+- Multi-tenant isolation via key prefix
+- Real-time job state for polling
+- Horizontal scaling support
+
+See [AS3 Integration Guide](docs/as3-integration.md) for details.
+
+---
+
+## Development
+
+```bash
+# Install dependencies
 make deps
 
 # Run tests
@@ -235,144 +265,27 @@ make lint
 make build
 ```
 
-### Local Development with Docker
-
-Start the observability stack:
-
-```bash
-cd examples
-docker compose up -d
-
-# Access Grafana at http://localhost:3000
-# NATS monitoring at http://localhost:8222
-```
-
-Run the daemon with tracing enabled:
-
-```bash
-./bin/hikma-av daemon \
-  --log-level debug \
-  --log-format text
-```
-
 ### Running Tests
 
 ```bash
-# All tests
-make test
+# Unit tests (fast)
+go test ./... -short
+
+# All tests including integration
+go test ./...
 
 # With race detector
 go test -race ./...
 
-# Integration tests only
-go test -v ./internal/engine/... -run Integration
-
 # Benchmarks
-make test-bench
+go test -bench=. ./internal/engine/
 ```
 
-## NATS Integration
+---
 
-HikmaAV uses NATS for request/reply messaging:
-
-**Subject**: `hikma.av.scan`
-**Queue Group**: `av-workers` (for load balancing)
-
-### Request Format
-
-```json
-{
-  "hash": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
-  "request_id": "optional-correlation-id"
-}
-```
-
-### Response Format
-
-```json
-{
-  "request_id": "optional-correlation-id",
-  "hash": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
-  "hash_type": "sha256",
-  "status": "malware",
-  "detection": "EICAR-Test-File",
-  "threat": "testfile",
-  "severity": "low",
-  "source": "eicar",
-  "lookup_time_ms": 0.123,
-  "bloom_hit": true,
-  "scanned_at": "2024-01-01T00:00:00Z"
-}
-```
-
-### Example with nats-cli
-
-```bash
-# Install nats-cli
-go install github.com/nats-io/natscli/nats@latest
-
-# Send a scan request
-echo '{"hash":"275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"}' | \
-  nats request hikma.av.scan
-```
-
-## Observability (Optional)
-
-The observability stack (Grafana, Loki, Tempo) is **completely optional**. HikmaAV works standalone without any external dependencies except for the data directory.
-
-To disable tracing, set `tracing.enabled: false` in your config or simply omit the tracing configuration:
-
-```yaml
-tracing:
-  enabled: false
-```
-
-Logging always works and outputs to stdout. You can switch between JSON (for Loki) and text formats:
-
-```yaml
-log:
-  level: info
-  format: text  # Use 'text' for human-readable, 'json' for Loki
-```
-
-### Logging (Loki)
-
-Logs are emitted in JSON format with automatic trace ID injection:
-
-```json
-{
-  "time": "2024-01-01T00:00:00Z",
-  "level": "INFO",
-  "msg": "processed scan request",
-  "service": "hikma-av",
-  "version": "1.0.0",
-  "trace_id": "abc123...",
-  "span_id": "def456...",
-  "request_id": "req-123",
-  "hash": "275a021b...f651fd0f",
-  "status": "malware",
-  "duration": "1.234ms"
-}
-```
-
-### Tracing (Tempo)
-
-Traces are exported via OTLP/gRPC to Tempo. Each scan request creates a span with:
-
-- Hash value and type
-- Lookup result (status, detection)
-- Bloom filter hit/miss
-- Lookup duration
-
-### Grafana Dashboard
-
-Access Grafana at `http://localhost:3000` after starting the Docker stack. Datasources for Loki and Tempo are pre-configured with trace-to-log correlation.
-
-## Known Hashes
+## Known Test Hashes
 
 ### EICAR Test File
-
-The EICAR test file is a standard antivirus test file that all AV products should detect:
 
 | Algorithm | Hash |
 |-----------|------|
@@ -380,6 +293,16 @@ The EICAR test file is a standard antivirus test file that all AV products shoul
 | SHA1 | `3395856ce81f2b7382dee72602f798b642f14140` |
 | MD5 | `44d88612fea8a8f36de82e1278abb02f` |
 
+---
+
 ## License
 
 Apache 2.0 - See [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  <a href="https://github.com/hikmaai-io/hikmaai-argus">GitHub</a> •
+  <a href="docs/quickstart.md">Quick Start</a> •
+  <a href="docs/architecture.md">Architecture</a>
+</p>
