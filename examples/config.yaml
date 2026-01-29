@@ -37,6 +37,43 @@ tracing:
 feeds:
   update_interval: 1h
   sources:
-    - eicar      # Built-in EICAR test signatures
-    # - clamav   # ClamAV main.cvd and daily.cvd (not yet implemented)
-    # - abusech  # abuse.ch malware bazaar (not yet implemented)
+    - eicar           # Built-in EICAR test signatures
+    # - clamav        # ClamAV main.cvd and daily.cvd (extracts hashes to DB)
+    # - clamav-db     # Downloads CVD files for clamscan (see clamav section)
+    # - malwarebazaar # abuse.ch MalwareBazaar hashes
+    # - threatfox     # abuse.ch ThreatFox IOCs
+
+# ClamAV scanner configuration (OPTIONAL)
+# Provides full file analysis in addition to hash lookups.
+# Disabled by default; requires ClamAV to be installed.
+clamav:
+  enabled: false
+
+  # Scanner mode: "clamscan" (default) or "clamd"
+  # clamscan: Uses the clamscan binary (slower, loads DB per scan)
+  # clamd: Connects to clamd daemon (faster, keeps DB in memory)
+  mode: clamscan
+
+  # Path to clamscan binary (only for clamscan mode)
+  binary: clamscan
+
+  # Database directory for CVD files (main.cvd, daily.cvd, bytecode.cvd)
+  # Managed by the "clamav-db" feed source
+  # Defaults to data_dir/clamav if not set
+  # database_dir: /var/lib/hikma-av/clamav
+
+  # clamd address (only for clamd mode)
+  # address: unix:///var/run/clamav/clamd.ctl
+  # address: tcp://localhost:3310
+
+  # Scan timeout
+  timeout: 5m
+
+  # Maximum file size to scan (100MB default)
+  max_file_size: 104857600
+
+  # Number of concurrent scan workers
+  workers: 2
+
+  # Cache TTL for scan results (avoids re-scanning same file)
+  cache_ttl: 24h
