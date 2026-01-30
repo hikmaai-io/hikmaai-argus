@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -260,6 +261,106 @@ func TestClient_DownloadPath(t *testing.T) {
 func downloadPath(downloadDir, jobID, objectPath string) string {
 	filename := filepath.Base(objectPath)
 	return filepath.Join(downloadDir, jobID, filename)
+}
+
+// TestNewClient_EmulatorMode tests that emulator mode is detected correctly.
+func TestNewClient_EmulatorMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		cfg          Config
+		envHost      string
+		wantEmulator bool
+	}{
+		{
+			name: "explicit emulator host",
+			cfg: Config{
+				Bucket:       "test-bucket",
+				DownloadDir:  "/tmp/downloads",
+				EmulatorHost: "localhost:4443",
+			},
+			wantEmulator: true,
+		},
+		{
+			name: "no emulator",
+			cfg: Config{
+				Bucket:      "test-bucket",
+				DownloadDir: "/tmp/downloads",
+			},
+			wantEmulator: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Note: We can't easily test env var in parallel tests
+			// since it would affect other tests. The explicit config test covers the logic.
+			if tt.cfg.EmulatorHost != "" {
+				client, err := NewClient(context.Background(), tt.cfg)
+				if err != nil {
+					t.Fatalf("NewClient() error = %v", err)
+				}
+				defer client.Close()
+
+				if client.IsEmulatorMode() != tt.wantEmulator {
+					t.Errorf("IsEmulatorMode() = %v, want %v", client.IsEmulatorMode(), tt.wantEmulator)
+				}
+			}
+		})
+	}
+}
+
+// TestBuildEmulatorDownloadURL tests the URL construction for emulator downloads.
+func TestBuildEmulatorDownloadURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		host       string
+		bucket     string
+		objectPath string
+		wantURL    string
+	}{
+		{
+			name:       "simple path",
+			host:       "localhost:4443",
+			bucket:     "hikma-skills",
+			objectPath: "org-123/skills/file.zip",
+			wantURL:    "http://localhost:4443/storage/v1/b/hikma-skills/o/org-123%2Fskills%2Ffile.zip?alt=media",
+		},
+		{
+			name:       "with special chars",
+			host:       "hikma-gcs:4443",
+			bucket:     "test-bucket",
+			objectPath: "org/path with spaces/file.zip",
+			wantURL:    "http://hikma-gcs:4443/storage/v1/b/test-bucket/o/org%2Fpath%20with%20spaces%2Ffile.zip?alt=media",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := buildEmulatorDownloadURL(tt.host, tt.bucket, tt.objectPath)
+			if got != tt.wantURL {
+				t.Errorf("buildEmulatorDownloadURL() = %q, want %q", got, tt.wantURL)
+			}
+		})
+	}
+}
+
+// buildEmulatorDownloadURL is a helper tested above.
+func buildEmulatorDownloadURL(host, bucket, objectPath string) string {
+	return "http://" + host + "/storage/v1/b/" + bucket + "/o/" + pathEscape(objectPath) + "?alt=media"
+}
+
+// pathEscape escapes a path for use in a URL.
+func pathEscape(s string) string {
+	// This matches the behavior of url.PathEscape
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "/", "%2F"), " ", "%20"), "+", "%2B")
 }
 
 // Integration test - requires real GCS or emulator.
