@@ -251,13 +251,31 @@ func (w *Worker) processTask(ctx context.Context, logger *slog.Logger, task *Tas
 	if timeout == 0 {
 		timeout = w.config.DefaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	taskCtx, taskCancel := context.WithTimeout(ctx, timeout)
+	defer taskCancel()
+
+	// Start cancellation listener.
+	cancelListener := w.listenForCancel(taskCtx, task.JobID)
+
+	// Create a cancellable context that responds to either timeout or cancellation signal.
+	go func() {
+		select {
+		case <-cancelListener.Done():
+			taskCancel()
+		case <-taskCtx.Done():
+		}
+	}()
 
 	// Initialize state.
-	if err := w.initializeState(ctx, task); err != nil {
+	if err := w.initializeState(taskCtx, task); err != nil {
 		logger.Error("initializing state", slog.Any("error", err))
 		w.publishCompletion(ctx, task.JobID, "failed", nil)
+		return
+	}
+
+	// Check for cancellation before proceeding.
+	if w.isCancelled(taskCtx, cancelListener) {
+		w.cancelTask(ctx, task.JobID)
 		return
 	}
 
@@ -272,10 +290,21 @@ func (w *Worker) processTask(ctx context.Context, logger *slog.Logger, task *Tas
 
 	// Download from GCS.
 	logger.Info("downloading skill from GCS", slog.String("gcs_uri", task.GCSURI))
-	downloadResult, err := w.gcsClient.DownloadFromURI(ctx, task.GCSURI, task.JobID)
+	downloadResult, err := w.gcsClient.DownloadFromURI(taskCtx, task.GCSURI, task.JobID)
 	if err != nil {
+		// Check if error is due to cancellation.
+		if w.isCancelled(taskCtx, cancelListener) {
+			w.cancelTask(ctx, task.JobID)
+			return
+		}
 		logger.Error("downloading from GCS", slog.Any("error", err))
 		w.failTask(ctx, task.JobID, fmt.Sprintf("download failed: %v", err))
+		return
+	}
+
+	// Check for cancellation after download.
+	if w.isCancelled(taskCtx, cancelListener) {
+		w.cancelTask(ctx, task.JobID)
 		return
 	}
 
@@ -296,12 +325,29 @@ func (w *Worker) processTask(ctx context.Context, logger *slog.Logger, task *Tas
 		}()
 	}
 
+	// Check for cancellation after extraction.
+	if w.isCancelled(taskCtx, cancelListener) {
+		w.cancelTask(ctx, task.JobID)
+		return
+	}
+
 	// Run scanners.
 	logger.Info("running scanners", slog.Any("scanners", task.Scanners))
-	results, err := w.runScanners(ctx, logger, task, scanPath)
+	results, err := w.runScanners(taskCtx, logger, task, scanPath)
 	if err != nil {
+		// Check if error is due to cancellation.
+		if w.isCancelled(taskCtx, cancelListener) {
+			w.cancelTask(ctx, task.JobID)
+			return
+		}
 		logger.Error("running scanners", slog.Any("error", err))
 		w.failTask(ctx, task.JobID, fmt.Sprintf("scan failed: %v", err))
+		return
+	}
+
+	// Check for cancellation after scanners complete.
+	if w.isCancelled(taskCtx, cancelListener) {
+		w.cancelTask(ctx, task.JobID)
 		return
 	}
 
@@ -327,6 +373,25 @@ func (w *Worker) processTask(ctx context.Context, logger *slog.Logger, task *Tas
 		slog.String("status", status),
 		slog.Duration("duration", elapsed),
 	)
+}
+
+// isCancelled checks if the task has been cancelled via the cancellation listener.
+func (w *Worker) isCancelled(ctx context.Context, listener *CancellationListener) bool {
+	select {
+	case <-listener.Done():
+		return true
+	default:
+		// Also check if context was cancelled due to cancellation signal.
+		if ctx.Err() != nil {
+			select {
+			case <-listener.Done():
+				return true
+			default:
+				return false
+			}
+		}
+		return false
+	}
 }
 
 // initializeState sets up the initial job state in Redis.

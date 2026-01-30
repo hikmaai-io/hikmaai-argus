@@ -354,3 +354,28 @@ func TestCompletionSignal_Cancelled(t *testing.T) {
 		t.Errorf("Status = %q, want %q", got.Status, "cancelled")
 	}
 }
+
+func TestCancellationListener_SignalReceived(t *testing.T) {
+	t.Parallel()
+
+	listener := NewCancellationListener()
+
+	// Initially not cancelled.
+	select {
+	case <-listener.Done():
+		t.Error("Done() channel should not be closed initially")
+	default:
+		// Expected.
+	}
+
+	// Signal cancellation.
+	listener.Stop()
+
+	// Should now be cancelled.
+	select {
+	case <-listener.Done():
+		// Expected.
+	default:
+		t.Error("Done() channel should be closed after Stop()")
+	}
+}
