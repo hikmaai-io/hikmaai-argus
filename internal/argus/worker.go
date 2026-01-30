@@ -440,6 +440,25 @@ func (w *Worker) failTask(ctx context.Context, jobID, errMsg string) {
 	w.publishCompletion(ctx, jobID, "failed", nil)
 }
 
+// cancelTask marks a task as cancelled and publishes completion.
+func (w *Worker) cancelTask(ctx context.Context, jobID string) {
+	fields := map[string]string{
+		"cancelled":    "true",
+		"cancelled_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	_ = w.stateManager.SetFields(ctx, jobID, fields)
+
+	// Set both scanner statuses to cancelled.
+	_ = w.stateManager.SetField(ctx, jobID, "trivy_status", string(StatusCancelled))
+	_ = w.stateManager.SetField(ctx, jobID, "clamav_status", string(StatusCancelled))
+
+	w.publishCompletion(ctx, jobID, "cancelled", nil)
+
+	w.logger.Info("task cancelled",
+		slog.String("job_id", jobID),
+	)
+}
+
 // publishCompletion sends a completion signal to Redis.
 func (w *Worker) publishCompletion(ctx context.Context, jobID, status string, results *ArgusResults) {
 	signal := CompletionSignal{

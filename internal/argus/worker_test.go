@@ -329,3 +329,28 @@ func TestCancellationListener_StopCleanup(t *testing.T) {
 	// Safe to call stop again.
 	listener.Stop()
 }
+
+func TestCompletionSignal_Cancelled(t *testing.T) {
+	t.Parallel()
+
+	signal := CompletionSignal{
+		JobID:       "job-cancelled",
+		Status:      "cancelled",
+		CompletedAt: time.Now().UTC(),
+		Results:     nil,
+	}
+
+	data, err := json.Marshal(signal)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var got CompletionSignal
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	if got.Status != "cancelled" {
+		t.Errorf("Status = %q, want %q", got.Status, "cancelled")
+	}
+}
