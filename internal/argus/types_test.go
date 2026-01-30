@@ -97,6 +97,7 @@ func TestScannerStatus_Valid(t *testing.T) {
 		StatusRunning,
 		StatusCompleted,
 		StatusFailed,
+		StatusCancelled,
 	}
 
 	for _, status := range validStatuses {
@@ -122,6 +123,7 @@ func TestScannerStatus_IsTerminal(t *testing.T) {
 		{StatusRunning, false},
 		{StatusCompleted, true},
 		{StatusFailed, true},
+		{StatusCancelled, true},
 	}
 
 	for _, tt := range tests {
@@ -164,6 +166,16 @@ func TestArgusStatus_AllTerminal(t *testing.T) {
 			status:   ArgusStatus{Trivy: StatusFailed, ClamAV: StatusFailed},
 			terminal: true,
 		},
+		{
+			name:     "all cancelled",
+			status:   ArgusStatus{Trivy: StatusCancelled, ClamAV: StatusCancelled},
+			terminal: true,
+		},
+		{
+			name:     "one cancelled",
+			status:   ArgusStatus{Trivy: StatusCompleted, ClamAV: StatusCancelled},
+			terminal: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -172,6 +184,47 @@ func TestArgusStatus_AllTerminal(t *testing.T) {
 
 			if got := tt.status.AllTerminal(); got != tt.terminal {
 				t.Errorf("AllTerminal() = %v, want %v", got, tt.terminal)
+			}
+		})
+	}
+}
+
+func TestArgusStatus_AnyCancelled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		status    ArgusStatus
+		cancelled bool
+	}{
+		{
+			name:      "none cancelled",
+			status:    ArgusStatus{Trivy: StatusCompleted, ClamAV: StatusCompleted},
+			cancelled: false,
+		},
+		{
+			name:      "trivy cancelled",
+			status:    ArgusStatus{Trivy: StatusCancelled, ClamAV: StatusCompleted},
+			cancelled: true,
+		},
+		{
+			name:      "clamav cancelled",
+			status:    ArgusStatus{Trivy: StatusCompleted, ClamAV: StatusCancelled},
+			cancelled: true,
+		},
+		{
+			name:      "both cancelled",
+			status:    ArgusStatus{Trivy: StatusCancelled, ClamAV: StatusCancelled},
+			cancelled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.status.AnyCancelled(); got != tt.cancelled {
+				t.Errorf("AnyCancelled() = %v, want %v", got, tt.cancelled)
 			}
 		})
 	}

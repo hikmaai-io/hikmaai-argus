@@ -34,12 +34,13 @@ const (
 	StatusRunning   ScannerStatus = "running"
 	StatusCompleted ScannerStatus = "completed"
 	StatusFailed    ScannerStatus = "failed"
+	StatusCancelled ScannerStatus = "cancelled"
 )
 
 // IsValid checks if the status is a known value.
 func (s ScannerStatus) IsValid() bool {
 	switch s {
-	case StatusPending, StatusRunning, StatusCompleted, StatusFailed:
+	case StatusPending, StatusRunning, StatusCompleted, StatusFailed, StatusCancelled:
 		return true
 	default:
 		return false
@@ -48,7 +49,7 @@ func (s ScannerStatus) IsValid() bool {
 
 // IsTerminal returns true if the status represents a final state.
 func (s ScannerStatus) IsTerminal() bool {
-	return s == StatusCompleted || s == StatusFailed
+	return s == StatusCompleted || s == StatusFailed || s == StatusCancelled
 }
 
 // TaskMessage is the message received from Redis via Redis Streams.
@@ -147,6 +148,11 @@ func (s ArgusStatus) AllTerminal() bool {
 // AnyFailed returns true if any scanner has failed.
 func (s ArgusStatus) AnyFailed() bool {
 	return s.Trivy == StatusFailed || s.ClamAV == StatusFailed
+}
+
+// AnyCancelled returns true if any scanner was cancelled.
+func (s ArgusStatus) AnyCancelled() bool {
+	return s.Trivy == StatusCancelled || s.ClamAV == StatusCancelled
 }
 
 // TrivyResults holds Trivy scan findings.
