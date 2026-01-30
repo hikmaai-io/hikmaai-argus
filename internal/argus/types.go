@@ -239,8 +239,8 @@ type ClamScanSummary struct {
 
 // ArgusResults aggregates results from all scanners.
 type ArgusResults struct {
-	Trivy  *TrivyResults  `json:"trivy,omitempty"`
-	ClamAV *ClamAVResults `json:"clamav,omitempty"`
+	Trivy  *TrivyResults     `json:"trivy,omitempty"`
+	ClamAV *ClamAVResults    `json:"clamav,omitempty"`
 	Errors map[string]string `json:"errors,omitempty"`
 }
 

@@ -294,8 +294,8 @@ func DefaultConfig() *Config {
 			Enabled:             false,   // Disabled by default
 			Mode:                "local", // Use local trivy binary by default
 			Binary:              "trivy",
-			ServerURL:           "",      // Set for server mode
-			CacheDir:            "",      // Uses trivy default
+			ServerURL:           "", // Set for server mode
+			CacheDir:            "", // Uses trivy default
 			SkipDBUpdate:        false,
 			Timeout:             5 * time.Minute,
 			DefaultSeverities:   []string{"HIGH", "CRITICAL"},

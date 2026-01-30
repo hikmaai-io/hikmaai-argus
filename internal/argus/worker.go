@@ -93,13 +93,13 @@ type TaskProcessor interface {
 
 // Worker processes scan tasks from Redis.
 type Worker struct {
-	config        WorkerConfig
-	redisClient   *redis.Client
-	consumer      *redis.StreamConsumer
-	stateManager  *redis.StateManager
-	gcsClient     *gcs.Client
-	runner        *Runner
-	logger        *slog.Logger
+	config       WorkerConfig
+	redisClient  *redis.Client
+	consumer     *redis.StreamConsumer
+	stateManager *redis.StateManager
+	gcsClient    *gcs.Client
+	runner       *Runner
+	logger       *slog.Logger
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
