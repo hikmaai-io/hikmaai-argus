@@ -190,6 +190,10 @@ type ArgusWorkerConfig struct {
 	// CompletionPrefix is the prefix for completion signal streams.
 	CompletionPrefix string `yaml:"completion_prefix"`
 
+	// CancelPrefix is the prefix for cancellation Pub/Sub channels.
+	// Cancellation signals are published to: {cancel_prefix}:{job_id}
+	CancelPrefix string `yaml:"cancel_prefix"`
+
 	// Workers is the number of concurrent scan workers.
 	Workers int `yaml:"workers"`
 
@@ -322,6 +326,7 @@ func DefaultConfig() *Config {
 			ConsumerGroup:     "argus-workers",
 			ConsumerName:      "", // Auto-generated from hostname
 			CompletionPrefix:  "argus_completion",
+			CancelPrefix:      "argus_cancel",
 			Workers:           2,
 			DefaultTimeout:    15 * time.Minute,
 			MaxRetries:        3,

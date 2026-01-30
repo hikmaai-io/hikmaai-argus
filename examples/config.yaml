@@ -142,6 +142,16 @@ redis:
 # GCS configuration for skill artifact storage (OPTIONAL)
 # Required for Argus worker mode to download skill archives from Redis.
 # Disabled by default.
+#
+# LOCAL DEVELOPMENT with fake-gcs-server:
+# The Go GCS SDK automatically uses the STORAGE_EMULATOR_HOST env var.
+# Set this before running Argus to redirect all GCS calls to the emulator:
+#
+#   export STORAGE_EMULATOR_HOST=http://localhost:4443
+#   hikmaai-argus daemon ...
+#
+# The fake-gcs-server is provided by hikma-infra (port 4443).
+# No bucket creation needed; fake-gcs-server auto-creates buckets on first write.
 gcs:
   enabled: false
   # GCS bucket name for skill archives
@@ -173,6 +183,10 @@ argus_worker:
 
   # Prefix for completion signal streams
   completion_prefix: argus_completion
+
+  # Prefix for cancellation Pub/Sub channels
+  # Cancellation signals are received on: {cancel_prefix}:{job_id}
+  cancel_prefix: argus_cancel
 
   # Number of concurrent scan workers
   workers: 2
