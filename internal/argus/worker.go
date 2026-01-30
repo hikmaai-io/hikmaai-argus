@@ -35,6 +35,9 @@ type WorkerConfig struct {
 	// CompletionPrefix is the prefix for completion signal streams.
 	CompletionPrefix string
 
+	// CancelPrefix is the prefix for cancellation Pub/Sub channels.
+	CancelPrefix string
+
 	// Workers is the number of concurrent processing goroutines.
 	Workers int
 
@@ -64,6 +67,9 @@ func (c *WorkerConfig) Validate() error {
 	}
 	if c.CompletionPrefix == "" {
 		c.CompletionPrefix = "argus_completion"
+	}
+	if c.CancelPrefix == "" {
+		c.CancelPrefix = "argus_cancel"
 	}
 	if c.Workers <= 0 {
 		c.Workers = 2
@@ -502,4 +508,70 @@ func InitialArgusStatus(scanners []string) ArgusStatus {
 func isArchive(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".zip" || ext == ".tar" || ext == ".gz" || ext == ".tgz"
+}
+
+// CancelChannelName returns the Redis Pub/Sub channel name for cancellation signals.
+func CancelChannelName(prefix, jobID string) string {
+	return prefix + ":" + jobID
+}
+
+// CancellationListener handles cancellation signal monitoring.
+type CancellationListener struct {
+	cancelledCh chan struct{}
+	stopOnce    sync.Once
+}
+
+// NewCancellationListener creates a new cancellation listener.
+func NewCancellationListener() *CancellationListener {
+	return &CancellationListener{
+		cancelledCh: make(chan struct{}),
+	}
+}
+
+// Done returns a channel that is closed when cancellation is received.
+func (c *CancellationListener) Done() <-chan struct{} {
+	return c.cancelledCh
+}
+
+// Stop stops the listener and closes the done channel.
+func (c *CancellationListener) Stop() {
+	c.stopOnce.Do(func() {
+		close(c.cancelledCh)
+	})
+}
+
+// listenForCancel subscribes to the cancellation Pub/Sub channel and signals
+// when a cancellation message is received.
+func (w *Worker) listenForCancel(ctx context.Context, jobID string) *CancellationListener {
+	listener := NewCancellationListener()
+
+	channelName := CancelChannelName(w.config.CancelPrefix, jobID)
+	prefixedChannel := w.redisClient.PrefixedKey(channelName)
+
+	go func() {
+		pubsub := w.redisClient.Redis().Subscribe(ctx, prefixedChannel)
+		defer pubsub.Close()
+
+		ch := pubsub.Channel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				if msg != nil {
+					w.logger.Info("received cancellation signal",
+						slog.String("job_id", jobID),
+						slog.String("channel", channelName),
+					)
+					listener.Stop()
+					return
+				}
+			}
+		}
+	}()
+
+	return listener
 }

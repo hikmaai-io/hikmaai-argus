@@ -236,3 +236,96 @@ func TestStatusTransitions(t *testing.T) {
 		t.Error("AllTerminal() should be true when all completed")
 	}
 }
+
+func TestWorkerConfig_CancelPrefixDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := WorkerConfig{
+		TaskQueue:     "queue",
+		ConsumerGroup: "group",
+		ConsumerName:  "worker-1",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	if cfg.CancelPrefix != "argus_cancel" {
+		t.Errorf("CancelPrefix = %q, want %q", cfg.CancelPrefix, "argus_cancel")
+	}
+}
+
+func TestWorkerConfig_CancelPrefixCustom(t *testing.T) {
+	t.Parallel()
+
+	cfg := WorkerConfig{
+		TaskQueue:     "queue",
+		ConsumerGroup: "group",
+		ConsumerName:  "worker-1",
+		CancelPrefix:  "custom_cancel",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	if cfg.CancelPrefix != "custom_cancel" {
+		t.Errorf("CancelPrefix = %q, want %q", cfg.CancelPrefix, "custom_cancel")
+	}
+}
+
+func TestCancelChannelName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		cancelPrefix string
+		jobID        string
+		want         string
+	}{
+		{
+			name:         "default prefix",
+			cancelPrefix: "argus_cancel",
+			jobID:        "job-123",
+			want:         "argus_cancel:job-123",
+		},
+		{
+			name:         "custom prefix",
+			cancelPrefix: "custom",
+			jobID:        "abc-456",
+			want:         "custom:abc-456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := CancelChannelName(tt.cancelPrefix, tt.jobID)
+			if got != tt.want {
+				t.Errorf("CancelChannelName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCancellationListener_StopCleanup(t *testing.T) {
+	t.Parallel()
+
+	// Test that stopFn can be called safely multiple times.
+	listener := NewCancellationListener()
+
+	// Call stop before any goroutine starts.
+	listener.Stop()
+
+	// Verify channel is closed.
+	select {
+	case <-listener.Done():
+		// Expected; channel should be closed.
+	default:
+		t.Error("Done() channel should be closed after Stop()")
+	}
+
+	// Safe to call stop again.
+	listener.Stop()
+}
