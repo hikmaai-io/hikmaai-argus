@@ -43,6 +43,7 @@ func newDaemonCmd() *cobra.Command {
 		// Argus worker flags.
 		argusWorkerEnabled bool
 		redisAddr          string
+		redisPassword      string
 		redisPrefix        string
 		gcsBucket          string
 		gcsDownloadDir     string
@@ -76,6 +77,7 @@ and signature feeds while the daemon is running.`,
 				TrivyCacheTTL:       trivyCacheTTL,
 				ArgusWorkerEnabled:  argusWorkerEnabled,
 				RedisAddr:           redisAddr,
+				RedisPassword:       redisPassword,
 				RedisPrefix:         redisPrefix,
 				GCSBucket:           gcsBucket,
 				GCSDownloadDir:      gcsDownloadDir,
@@ -96,6 +98,7 @@ and signature feeds while the daemon is running.`,
 	// Argus worker flags.
 	cmd.Flags().BoolVar(&argusWorkerEnabled, "argus-worker", false, "enable Argus worker for Redis integration")
 	cmd.Flags().StringVar(&redisAddr, "redis-addr", "localhost:6379", "Redis server address")
+	cmd.Flags().StringVar(&redisPassword, "redis-password", "", "Redis password for authentication")
 	cmd.Flags().StringVar(&redisPrefix, "redis-prefix", "argus:", "Redis key prefix")
 	cmd.Flags().StringVar(&gcsBucket, "gcs-bucket", "", "GCS bucket for skill downloads")
 	cmd.Flags().StringVar(&gcsDownloadDir, "gcs-download-dir", "/tmp/argus/downloads", "local directory for GCS downloads")
@@ -117,6 +120,7 @@ type daemonConfig struct {
 	// Argus worker settings.
 	ArgusWorkerEnabled bool
 	RedisAddr          string
+	RedisPassword      string
 	RedisPrefix        string
 	GCSBucket          string
 	GCSDownloadDir     string
@@ -325,6 +329,7 @@ func initArgusWorker(ctx context.Context, cfg daemonConfig, clamScanner *scanner
 	// Create Redis client.
 	redisClient, err := internalredis.NewClient(internalredis.Config{
 		Addr:         cfg.RedisAddr,
+		Password:     cfg.RedisPassword,
 		Prefix:       cfg.RedisPrefix,
 		PoolSize:     10,
 		ReadTimeout:  5 * time.Second,
