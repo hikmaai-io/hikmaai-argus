@@ -143,6 +143,16 @@ func (s *ClamAVScanner) buildClamscanArgs(path string) []string {
 		args = append(args, "--database", s.config.DatabaseDir)
 	}
 
+	// Enable recursive archive scanning (scans inside nested zips).
+	// This is essential for detecting malware in nested archives like eicar_com2.zip.
+	args = append(args,
+		"--scan-archive=yes",      // Scan inside archives (default, but explicit)
+		"--max-recursion=10",      // Allow nested archive scanning (default is 17)
+		"--max-files=10000",       // Max files to scan in archive
+		"--max-scansize=100M",     // Max data to scan in archive
+		"--max-filesize=100M",     // Max file size to scan
+	)
+
 	// Add the file path.
 	args = append(args, path)
 
