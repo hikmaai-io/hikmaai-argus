@@ -122,6 +122,43 @@ TrivyUpdater downloads the Trivy vulnerability database:
 		// ...
 	}
 
+# DB Update Service
+
+DBUpdateService orchestrates all registered updaters with lifecycle management,
+scheduled updates, retry logic, and scan coordination:
+
+	coordinator := dbupdater.NewScanCoordinator()
+	svc := dbupdater.NewDBUpdateService(dbupdater.DBUpdateServiceConfig{
+		Coordinator:      coordinator,
+		RunInitialUpdate: true,
+		RetryConfig: dbupdater.BackoffConfig{
+			MaxRetries:   5,
+			InitialDelay: 30 * time.Second,
+		},
+	})
+
+	// Register updaters with their intervals
+	clamav := dbupdater.NewClamAVUpdater(dbupdater.ClamAVUpdaterConfig{
+		DatabaseDir: "/var/lib/clamav",
+	})
+	svc.RegisterUpdater(clamav, 1*time.Hour)
+
+	trivy := dbupdater.NewTrivyUpdater(dbupdater.TrivyUpdaterConfig{
+		CacheDir: "/var/cache/trivy",
+	})
+	svc.RegisterUpdater(trivy, 6*time.Hour)
+
+	// Start service
+	ctx := context.Background()
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	// Query status
+	statuses := svc.GetStatus()
+
+	// Manually trigger an update
+	svc.TriggerUpdate(ctx, "clamav")
+
 # Thread Safety
 
 All components in this package are thread-safe and can be used from
@@ -131,7 +168,6 @@ multiple goroutines concurrently.
 
 The following components are planned for future phases:
 
-  - DBUpdateService for orchestrating all updaters
   - Integration with circuit breakers and health checks
 */
 package dbupdater
