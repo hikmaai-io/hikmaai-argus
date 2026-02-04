@@ -267,16 +267,25 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 		)
 	}
 
+	// Initialize DB update service if enabled (before API handler for health endpoint).
+	var dbUpdateService *dbupdater.DBUpdateService
+	var dbUpdateProvider api.DBUpdateStatusProvider
+	if cfg.DBUpdateEnabled {
+		dbUpdateService = initDBUpdateService(cfg, eng, logger)
+		dbUpdateProvider = &dbUpdateStatusAdapter{service: dbUpdateService}
+	}
+
 	// Create API handler.
 	handler := api.NewHandler(api.HandlerConfig{
-		Engine:        eng,
-		JobStore:      jobStore,
-		ScanCache:     scanCache,
-		Worker:        worker,
-		UploadDir:     filepath.Join(cfg.DataDir, "uploads"),
-		MaxFileSize:   100 * 1024 * 1024,
-		TrivyScanner:  trivyScanner,
-		TrivyJobStore: trivyJobStore,
+		Engine:           eng,
+		JobStore:         jobStore,
+		ScanCache:        scanCache,
+		Worker:           worker,
+		UploadDir:        filepath.Join(cfg.DataDir, "uploads"),
+		MaxFileSize:      100 * 1024 * 1024,
+		TrivyScanner:     trivyScanner,
+		TrivyJobStore:    trivyJobStore,
+		DBUpdateProvider: dbUpdateProvider,
 	})
 
 	// Start HTTP server.
@@ -302,9 +311,7 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 	}
 
 	// Start DB update service if enabled.
-	var dbUpdateService *dbupdater.DBUpdateService
-	if cfg.DBUpdateEnabled {
-		dbUpdateService = initDBUpdateService(cfg, eng, logger)
+	if dbUpdateService != nil {
 		if err := dbUpdateService.Start(workerCtx); err != nil {
 			logger.Error("failed to start DB update service", slog.String("error", err.Error()))
 		} else {
@@ -584,4 +591,36 @@ func (a *signatureFeedAdapter) Name() string {
 
 func (a *signatureFeedAdapter) Fetch(ctx context.Context) ([]*types.Signature, error) {
 	return a.feed.Fetch(ctx)
+}
+
+// dbUpdateStatusAdapter adapts dbupdater.DBUpdateService to api.DBUpdateStatusProvider.
+type dbUpdateStatusAdapter struct {
+	service *dbupdater.DBUpdateService
+}
+
+func (a *dbUpdateStatusAdapter) GetStatus() map[string]*api.DBUpdateStatus {
+	statuses := a.service.GetStatus()
+	result := make(map[string]*api.DBUpdateStatus, len(statuses))
+
+	for name, s := range statuses {
+		status := &api.DBUpdateStatus{
+			Name:    s.Name,
+			Status:  string(s.Status),
+			Ready:   s.Ready,
+			Version: s.Version.Version,
+		}
+		if !s.LastUpdate.IsZero() {
+			t := s.LastUpdate
+			status.LastUpdate = &t
+		}
+		if !s.NextScheduled.IsZero() {
+			t := s.NextScheduled
+			status.NextScheduled = &t
+		}
+		if s.LastError != "" {
+			status.LastError = s.LastError
+		}
+		result[name] = status
+	}
+	return result
 }

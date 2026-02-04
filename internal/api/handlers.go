@@ -24,28 +24,46 @@ import (
 	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
+// DBUpdateStatusProvider provides status information about database updates.
+type DBUpdateStatusProvider interface {
+	GetStatus() map[string]*DBUpdateStatus
+}
+
+// DBUpdateStatus contains the status of a single database updater.
+type DBUpdateStatus struct {
+	Name          string     `json:"name"`
+	Status        string     `json:"status"` // idle, updating, failed
+	Ready         bool       `json:"ready"`
+	LastUpdate    *time.Time `json:"last_update,omitempty"`
+	NextScheduled *time.Time `json:"next_scheduled,omitempty"`
+	LastError     string     `json:"last_error,omitempty"`
+	Version       int        `json:"version,omitempty"`
+}
+
 // Handler provides HTTP handlers for the API.
 type Handler struct {
-	engine        *engine.Engine
-	jobStore      *engine.JobStore
-	scanCache     *engine.ScanCache
-	worker        *scanner.Worker
-	uploadDir     string
-	maxFileSize   int64
-	trivyScanner  *trivy.Scanner
-	trivyJobStore *TrivyJobStore
+	engine           *engine.Engine
+	jobStore         *engine.JobStore
+	scanCache        *engine.ScanCache
+	worker           *scanner.Worker
+	uploadDir        string
+	maxFileSize      int64
+	trivyScanner     *trivy.Scanner
+	trivyJobStore    *TrivyJobStore
+	dbUpdateProvider DBUpdateStatusProvider
 }
 
 // HandlerConfig holds configuration for API handlers.
 type HandlerConfig struct {
-	Engine        *engine.Engine
-	JobStore      *engine.JobStore
-	ScanCache     *engine.ScanCache
-	Worker        *scanner.Worker
-	UploadDir     string
-	MaxFileSize   int64
-	TrivyScanner  *trivy.Scanner
-	TrivyJobStore *TrivyJobStore
+	Engine           *engine.Engine
+	JobStore         *engine.JobStore
+	ScanCache        *engine.ScanCache
+	Worker           *scanner.Worker
+	UploadDir        string
+	MaxFileSize      int64
+	TrivyScanner     *trivy.Scanner
+	TrivyJobStore    *TrivyJobStore
+	DBUpdateProvider DBUpdateStatusProvider
 }
 
 // NewHandler creates a new API handler.
@@ -54,14 +72,15 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		cfg.MaxFileSize = 100 * 1024 * 1024 // 100MB default
 	}
 	return &Handler{
-		engine:        cfg.Engine,
-		jobStore:      cfg.JobStore,
-		scanCache:     cfg.ScanCache,
-		worker:        cfg.Worker,
-		uploadDir:     cfg.UploadDir,
-		maxFileSize:   cfg.MaxFileSize,
-		trivyScanner:  cfg.TrivyScanner,
-		trivyJobStore: cfg.TrivyJobStore,
+		engine:           cfg.Engine,
+		jobStore:         cfg.JobStore,
+		scanCache:        cfg.ScanCache,
+		worker:           cfg.Worker,
+		uploadDir:        cfg.UploadDir,
+		maxFileSize:      cfg.MaxFileSize,
+		trivyScanner:     cfg.TrivyScanner,
+		trivyJobStore:    cfg.TrivyJobStore,
+		dbUpdateProvider: cfg.DBUpdateProvider,
 	}
 }
 
@@ -240,7 +259,7 @@ func (h *Handler) HandleGetJob(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/health
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	status := "ok"
-	checks := make(map[string]string)
+	checks := make(map[string]interface{})
 
 	// Check engine.
 	if h.engine != nil {
@@ -266,6 +285,14 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	// Check worker queue.
 	if h.worker != nil {
 		checks["worker"] = fmt.Sprintf("ok (queue: %d)", h.worker.QueueLength())
+	}
+
+	// Include DB update status if provider is configured.
+	if h.dbUpdateProvider != nil {
+		dbStatus := h.dbUpdateProvider.GetStatus()
+		if len(dbStatus) > 0 {
+			checks["db_updates"] = dbStatus
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
