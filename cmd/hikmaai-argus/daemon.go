@@ -32,14 +32,12 @@ import (
 
 func newDaemonCmd() *cobra.Command {
 	var (
-		background          bool
-		dataDir             string
-		clamDBDir           string
-		natsURL             string
-		httpAddr            string
-		feedsUpdateEnabled  bool
-		feedsUpdateInterval time.Duration
-		trivyServerURL      string
+		background         bool
+		dataDir            string
+		clamDBDir          string
+		natsURL            string
+		httpAddr           string
+		trivyServerURL     string
 		trivyCacheTTL       time.Duration
 		trivyCacheDir       string
 		trivySkipDBUpdate   bool
@@ -66,22 +64,20 @@ and provides health/metrics endpoints via HTTP.
 In foreground mode (default), the daemon runs in the current terminal.
 Use --background to daemonize the process.
 
-Feed updates can be enabled to periodically update ClamAV databases
-and signature feeds while the daemon is running.`,
+Use --db-update to enable periodic database updates for ClamAV, Trivy,
+and signature feeds with retry logic and scan coordination.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if background {
 				return fmt.Errorf("background mode not yet implemented")
 			}
 			return runDaemon(cmd.Context(), daemonConfig{
-				DataDir:             dataDir,
-				ClamDBDir:           clamDBDir,
-				NatsURL:             natsURL,
-				HTTPAddr:            httpAddr,
-				LogLevel:            logLevel,
-				LogFormat:           logFormat,
-				FeedsUpdateEnabled:  feedsUpdateEnabled,
-				FeedsUpdateInterval: feedsUpdateInterval,
-				TrivyServerURL:      trivyServerURL,
+				DataDir:        dataDir,
+				ClamDBDir:      clamDBDir,
+				NatsURL:        natsURL,
+				HTTPAddr:       httpAddr,
+				LogLevel:       logLevel,
+				LogFormat:      logFormat,
+				TrivyServerURL: trivyServerURL,
 				TrivyCacheTTL:       trivyCacheTTL,
 				TrivyCacheDir:       trivyCacheDir,
 				TrivySkipDBUpdate:   trivySkipDBUpdate,
@@ -105,8 +101,6 @@ and signature feeds while the daemon is running.`,
 	cmd.Flags().StringVar(&clamDBDir, "clamdb-dir", config.DefaultClamDBDir(), "directory for ClamAV databases (CVD files)")
 	cmd.Flags().StringVar(&natsURL, "nats-url", "nats://localhost:4222", "NATS server URL")
 	cmd.Flags().StringVar(&httpAddr, "http-addr", ":8080", "HTTP address for health/metrics")
-	cmd.Flags().BoolVar(&feedsUpdateEnabled, "feeds-update", false, "enable periodic feed updates")
-	cmd.Flags().DurationVar(&feedsUpdateInterval, "feeds-interval", 1*time.Hour, "feed update interval")
 	cmd.Flags().StringVar(&trivyServerURL, "trivy-server", "", "Trivy server URL (e.g., http://trivy:4954)")
 	cmd.Flags().DurationVar(&trivyCacheTTL, "trivy-cache-ttl", 1*time.Hour, "Trivy cache TTL")
 	cmd.Flags().StringVar(&trivyCacheDir, "trivy-cache-dir", "/app/data/trivy-cache", "Trivy cache directory for vulnerability database")
@@ -130,15 +124,13 @@ and signature feeds while the daemon is running.`,
 }
 
 type daemonConfig struct {
-	DataDir             string
-	ClamDBDir           string
-	NatsURL             string
-	HTTPAddr            string
-	LogLevel            string
-	LogFormat           string
-	FeedsUpdateEnabled  bool
-	FeedsUpdateInterval time.Duration
-	TrivyServerURL      string
+	DataDir        string
+	ClamDBDir      string
+	NatsURL        string
+	HTTPAddr       string
+	LogLevel       string
+	LogFormat      string
+	TrivyServerURL string
 	TrivyCacheTTL       time.Duration
 	TrivyCacheDir       string
 	TrivySkipDBUpdate   bool
@@ -304,12 +296,6 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 		}
 	}()
 
-	// Start feeds update worker if enabled (legacy mode).
-	// Note: Use --db-update for the new DB update service with retry and coordination.
-	if cfg.FeedsUpdateEnabled && !cfg.DBUpdateEnabled {
-		go runFeedsWorker(workerCtx, cfg, logger)
-	}
-
 	// Start DB update service if enabled.
 	if dbUpdateService != nil {
 		if err := dbUpdateService.Start(workerCtx); err != nil {
@@ -472,58 +458,6 @@ func (a *clamAVScannerAdapter) ScanFile(ctx context.Context, path string) (*type
 
 func (a *clamAVScannerAdapter) ScanDirectory(ctx context.Context, path string) ([]*types.ScanResult, error) {
 	return a.scanner.ScanDir(ctx, path, true)
-}
-
-// runFeedsWorker periodically updates feeds (ClamAV databases and signatures).
-func runFeedsWorker(ctx context.Context, cfg daemonConfig, logger *slog.Logger) {
-	logger.Info("starting feeds worker",
-		slog.Duration("interval", cfg.FeedsUpdateInterval),
-	)
-
-	// Run initial update.
-	updateFeeds(ctx, cfg, logger)
-
-	ticker := time.NewTicker(cfg.FeedsUpdateInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("feeds worker stopped")
-			return
-		case <-ticker.C:
-			updateFeeds(ctx, cfg, logger)
-		}
-	}
-}
-
-// updateFeeds updates ClamAV databases.
-func updateFeeds(ctx context.Context, cfg daemonConfig, logger *slog.Logger) {
-	logger.Info("updating ClamAV databases", slog.String("clamdb_dir", cfg.ClamDBDir))
-
-	dbFeed := feeds.NewClamAVDBFeed(cfg.ClamDBDir)
-
-	stats, err := dbFeed.Update(ctx)
-	if err != nil {
-		logger.Error("failed to update ClamAV databases",
-			slog.String("error", err.Error()),
-		)
-		return
-	}
-
-	logger.Info("ClamAV database update complete",
-		slog.Int("downloaded", stats.Downloaded),
-		slog.Int("skipped", stats.Skipped),
-		slog.Int("failed", stats.Failed),
-	)
-
-	versions := dbFeed.GetVersionInfo()
-	for db, version := range versions {
-		logger.Info("database version",
-			slog.String("database", db),
-			slog.Int("version", version),
-		)
-	}
 }
 
 // initDBUpdateService initializes the database update service.
