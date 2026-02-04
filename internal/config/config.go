@@ -58,6 +58,9 @@ type Config struct {
 
 	// ArgusWorker configuration for processing Redis tasks.
 	ArgusWorker ArgusWorkerConfig `yaml:"argus_worker"`
+
+	// DBUpdate configures the database update service.
+	DBUpdate DBUpdateConfig `yaml:"db_update"`
 }
 
 // NATSConfig holds NATS connection settings.
@@ -333,6 +336,7 @@ func DefaultConfig() *Config {
 			CleanupOnComplete: true,
 			StateTTL:          7 * 24 * time.Hour, // 7 days
 		},
+		DBUpdate: DefaultDBUpdateConfig(),
 	}
 }
 
