@@ -40,6 +40,8 @@ func newDaemonCmd() *cobra.Command {
 		feedsUpdateInterval time.Duration
 		trivyServerURL      string
 		trivyCacheTTL       time.Duration
+		trivyCacheDir       string
+		trivySkipDBUpdate   bool
 		// Argus worker flags.
 		argusWorkerEnabled bool
 		redisAddr          string
@@ -75,6 +77,8 @@ and signature feeds while the daemon is running.`,
 				FeedsUpdateInterval: feedsUpdateInterval,
 				TrivyServerURL:      trivyServerURL,
 				TrivyCacheTTL:       trivyCacheTTL,
+				TrivyCacheDir:       trivyCacheDir,
+				TrivySkipDBUpdate:   trivySkipDBUpdate,
 				ArgusWorkerEnabled:  argusWorkerEnabled,
 				RedisAddr:           redisAddr,
 				RedisPassword:       redisPassword,
@@ -94,6 +98,8 @@ and signature feeds while the daemon is running.`,
 	cmd.Flags().DurationVar(&feedsUpdateInterval, "feeds-interval", 1*time.Hour, "feed update interval")
 	cmd.Flags().StringVar(&trivyServerURL, "trivy-server", "", "Trivy server URL (e.g., http://trivy:4954)")
 	cmd.Flags().DurationVar(&trivyCacheTTL, "trivy-cache-ttl", 1*time.Hour, "Trivy cache TTL")
+	cmd.Flags().StringVar(&trivyCacheDir, "trivy-cache-dir", "/app/data/trivy-cache", "Trivy cache directory for vulnerability database")
+	cmd.Flags().BoolVar(&trivySkipDBUpdate, "trivy-skip-db-update", false, "Skip Trivy database updates (use cached)")
 
 	// Argus worker flags.
 	cmd.Flags().BoolVar(&argusWorkerEnabled, "argus-worker", false, "enable Argus worker for Redis integration")
@@ -117,6 +123,8 @@ type daemonConfig struct {
 	FeedsUpdateInterval time.Duration
 	TrivyServerURL      string
 	TrivyCacheTTL       time.Duration
+	TrivyCacheDir       string
+	TrivySkipDBUpdate   bool
 	// Argus worker settings.
 	ArgusWorkerEnabled bool
 	RedisAddr          string
@@ -353,10 +361,14 @@ func initArgusWorker(ctx context.Context, cfg daemonConfig, clamScanner *scanner
 	}
 
 	// Create Trivy scanner for Argus (local mode).
+	// CacheDir persists the vulnerability DB across container restarts.
+	// SkipDBUpdate can be enabled for air-gapped environments with pre-warmed cache.
 	trivyScanner := trivy.NewUnifiedScanner(&config.TrivyConfig{
-		Mode:    "local",
-		Binary:  "trivy",
-		Timeout: 5 * time.Minute,
+		Mode:         "local",
+		Binary:       "trivy",
+		Timeout:      5 * time.Minute,
+		CacheDir:     cfg.TrivyCacheDir,
+		SkipDBUpdate: cfg.TrivySkipDBUpdate,
 	})
 
 	// Create scanner runner.
