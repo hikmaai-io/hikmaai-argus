@@ -76,6 +76,52 @@ StatusTracker monitors the health and version of multiple updaters:
 	status := tracker.Get("clamav")
 	allStatuses := tracker.GetAll()
 
+# Updater Interface
+
+The Updater interface defines the contract for database updaters:
+
+	type Updater interface {
+		Name() string
+		Update(ctx context.Context) (*UpdateResult, error)
+		CheckForUpdates(ctx context.Context) (*CheckResult, error)
+		GetVersionInfo() VersionInfo
+		IsReady() bool
+	}
+
+# ClamAV Updater
+
+ClamAVUpdater downloads and manages ClamAV CVD files:
+
+	updater := dbupdater.NewClamAVUpdater(dbupdater.ClamAVUpdaterConfig{
+		DatabaseDir:  "/var/lib/clamav",
+		Mirrors:      []string{"https://database.clamav.net"},
+		Databases:    []string{"main.cvd", "daily.cvd"},
+		ClamdAddress: "unix:///var/run/clamav/clamd.ctl", // optional
+	})
+
+	result, err := updater.Update(ctx)
+	if err != nil {
+		log.Printf("update failed: %v", err)
+	}
+
+# Trivy Updater
+
+TrivyUpdater downloads the Trivy vulnerability database:
+
+	updater := dbupdater.NewTrivyUpdater(dbupdater.TrivyUpdaterConfig{
+		CacheDir:   "/var/cache/trivy",
+		Binary:     "trivy",
+		Timeout:    10 * time.Minute,
+		SkipJavaDB: true,
+	})
+
+	// Check if update is needed
+	check, _ := updater.CheckForUpdates(ctx)
+	if check.NeedsUpdate() {
+		result, err := updater.Update(ctx)
+		// ...
+	}
+
 # Thread Safety
 
 All components in this package are thread-safe and can be used from
@@ -85,7 +131,6 @@ multiple goroutines concurrently.
 
 The following components are planned for future phases:
 
-  - Updater interface and implementations (ClamAV, Trivy)
   - DBUpdateService for orchestrating all updaters
   - Integration with circuit breakers and health checks
 */
