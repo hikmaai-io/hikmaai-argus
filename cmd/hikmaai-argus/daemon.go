@@ -19,6 +19,7 @@ import (
 	"github.com/hikmaai-io/hikmaai-argus/internal/api"
 	"github.com/hikmaai-io/hikmaai-argus/internal/argus"
 	"github.com/hikmaai-io/hikmaai-argus/internal/config"
+	"github.com/hikmaai-io/hikmaai-argus/internal/dbupdater"
 	"github.com/hikmaai-io/hikmaai-argus/internal/engine"
 	"github.com/hikmaai-io/hikmaai-argus/internal/feeds"
 	"github.com/hikmaai-io/hikmaai-argus/internal/gcs"
@@ -49,6 +50,11 @@ func newDaemonCmd() *cobra.Command {
 		redisPrefix        string
 		gcsBucket          string
 		gcsDownloadDir     string
+		// DB update service flags.
+		dbUpdateEnabled         bool
+		dbUpdateClamAVInterval  time.Duration
+		dbUpdateTrivyInterval   time.Duration
+		dbUpdateSignaturesInterval time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -85,6 +91,11 @@ and signature feeds while the daemon is running.`,
 				RedisPrefix:         redisPrefix,
 				GCSBucket:           gcsBucket,
 				GCSDownloadDir:      gcsDownloadDir,
+				// DB update service config.
+				DBUpdateEnabled:            dbUpdateEnabled,
+				DBUpdateClamAVInterval:     dbUpdateClamAVInterval,
+				DBUpdateTrivyInterval:      dbUpdateTrivyInterval,
+				DBUpdateSignaturesInterval: dbUpdateSignaturesInterval,
 			})
 		},
 	}
@@ -109,6 +120,12 @@ and signature feeds while the daemon is running.`,
 	cmd.Flags().StringVar(&gcsBucket, "gcs-bucket", "", "GCS bucket for skill downloads")
 	cmd.Flags().StringVar(&gcsDownloadDir, "gcs-download-dir", "/tmp/argus/downloads", "local directory for GCS downloads")
 
+	// DB update service flags.
+	cmd.Flags().BoolVar(&dbUpdateEnabled, "db-update", false, "enable background DB update service")
+	cmd.Flags().DurationVar(&dbUpdateClamAVInterval, "db-update-clamav-interval", 1*time.Hour, "ClamAV database update interval")
+	cmd.Flags().DurationVar(&dbUpdateTrivyInterval, "db-update-trivy-interval", 6*time.Hour, "Trivy database update interval")
+	cmd.Flags().DurationVar(&dbUpdateSignaturesInterval, "db-update-signatures-interval", 1*time.Hour, "BadgerDB signature feed update interval")
+
 	return cmd
 }
 
@@ -132,6 +149,11 @@ type daemonConfig struct {
 	RedisPrefix        string
 	GCSBucket          string
 	GCSDownloadDir     string
+	// DB update service settings.
+	DBUpdateEnabled            bool
+	DBUpdateClamAVInterval     time.Duration
+	DBUpdateTrivyInterval      time.Duration
+	DBUpdateSignaturesInterval time.Duration
 }
 
 func runDaemon(ctx context.Context, cfg daemonConfig) error {
@@ -273,9 +295,25 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 		}
 	}()
 
-	// Start feeds update worker if enabled.
-	if cfg.FeedsUpdateEnabled {
+	// Start feeds update worker if enabled (legacy mode).
+	// Note: Use --db-update for the new DB update service with retry and coordination.
+	if cfg.FeedsUpdateEnabled && !cfg.DBUpdateEnabled {
 		go runFeedsWorker(workerCtx, cfg, logger)
+	}
+
+	// Start DB update service if enabled.
+	var dbUpdateService *dbupdater.DBUpdateService
+	if cfg.DBUpdateEnabled {
+		dbUpdateService = initDBUpdateService(cfg, eng, logger)
+		if err := dbUpdateService.Start(workerCtx); err != nil {
+			logger.Error("failed to start DB update service", slog.String("error", err.Error()))
+		} else {
+			logger.Info("db update service started",
+				slog.Duration("clamav_interval", cfg.DBUpdateClamAVInterval),
+				slog.Duration("trivy_interval", cfg.DBUpdateTrivyInterval),
+				slog.Duration("signatures_interval", cfg.DBUpdateSignaturesInterval),
+			)
+		}
 	}
 
 	// Start Argus worker if enabled.
@@ -312,6 +350,10 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 	}
 
 	worker.Stop()
+
+	if dbUpdateService != nil {
+		dbUpdateService.Stop()
+	}
 
 	if argusWorker != nil {
 		argusWorker.Stop()
@@ -475,4 +517,71 @@ func updateFeeds(ctx context.Context, cfg daemonConfig, logger *slog.Logger) {
 			slog.Int("version", version),
 		)
 	}
+}
+
+// initDBUpdateService initializes the database update service.
+func initDBUpdateService(cfg daemonConfig, eng *engine.Engine, logger *slog.Logger) *dbupdater.DBUpdateService {
+	// Create the DB update service.
+	service := dbupdater.NewDBUpdateService(dbupdater.DBUpdateServiceConfig{
+		Logger: logger,
+	})
+
+	// Register ClamAV updater.
+	clamUpdater := dbupdater.NewClamAVUpdater(dbupdater.ClamAVUpdaterConfig{
+		DatabaseDir: cfg.ClamDBDir,
+	})
+	service.RegisterUpdater(clamUpdater, cfg.DBUpdateClamAVInterval)
+
+	// Register Trivy updater.
+	trivyUpdater := dbupdater.NewTrivyUpdater(dbupdater.TrivyUpdaterConfig{
+		Binary:   "trivy",
+		CacheDir: cfg.TrivyCacheDir,
+	})
+	service.RegisterUpdater(trivyUpdater, cfg.DBUpdateTrivyInterval)
+
+	// Register signature feed updater for BadgerDB.
+	sigUpdater := dbupdater.NewSignatureFeedUpdater(dbupdater.SignatureFeedUpdaterConfig{
+		Engine: &signatureEngineAdapter{engine: eng},
+	})
+
+	// Register signature feeds.
+	sigUpdater.RegisterFeed(&signatureFeedAdapter{feed: feeds.NewMalwareBazaarFeed()})
+	sigUpdater.RegisterFeed(&signatureFeedAdapter{feed: feeds.NewThreatFoxFeed()})
+
+	service.RegisterUpdater(sigUpdater, cfg.DBUpdateSignaturesInterval)
+
+	return service
+}
+
+// signatureEngineAdapter adapts engine.Engine to dbupdater.SignatureEngine.
+type signatureEngineAdapter struct {
+	engine *engine.Engine
+}
+
+func (a *signatureEngineAdapter) BatchAddSignatures(ctx context.Context, sigs []*types.Signature) error {
+	return a.engine.BatchAddSignatures(ctx, sigs)
+}
+
+func (a *signatureEngineAdapter) Count() int64 {
+	stats, err := a.engine.Stats(context.Background())
+	if err != nil {
+		return 0
+	}
+	return stats.SignatureCount
+}
+
+// signatureFeedAdapter adapts existing feeds to dbupdater.SignatureFeed interface.
+type signatureFeedAdapter struct {
+	feed interface {
+		Name() string
+		Fetch(ctx context.Context) ([]*types.Signature, error)
+	}
+}
+
+func (a *signatureFeedAdapter) Name() string {
+	return a.feed.Name()
+}
+
+func (a *signatureFeedAdapter) Fetch(ctx context.Context) ([]*types.Signature, error) {
+	return a.feed.Fetch(ctx)
 }
