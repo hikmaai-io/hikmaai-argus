@@ -5,6 +5,7 @@ package dbupdater
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -286,4 +287,194 @@ func TestScanCoordinator_UpdateExclusive(t *testing.T) {
 	}
 
 	releaseFirst()
+}
+
+func TestScanCoordinator_NoGoroutineLeak(t *testing.T) {
+	t.Parallel()
+
+	c := NewScanCoordinator()
+	ctx := context.Background()
+
+	// Record initial goroutine count after GC.
+	runtime.GC()
+	time.Sleep(10 * time.Millisecond)
+	initial := runtime.NumGoroutine()
+
+	// Perform many acquire/release cycles.
+	for i := 0; i < 100; i++ {
+		release, err := c.AcquireForScan(ctx)
+		if err != nil {
+			t.Fatalf("iteration %d: AcquireForScan() error = %v", i, err)
+		}
+		release()
+	}
+
+	// Perform many update cycles.
+	for i := 0; i < 100; i++ {
+		release, err := c.AcquireForUpdate(ctx)
+		if err != nil {
+			t.Fatalf("iteration %d: AcquireForUpdate() error = %v", i, err)
+		}
+		release()
+	}
+
+	// Allow any goroutines to clean up.
+	time.Sleep(50 * time.Millisecond)
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+
+	final := runtime.NumGoroutine()
+	leaked := final - initial
+
+	// Allow small variance for test runtime goroutines.
+	if leaked > 2 {
+		t.Errorf("Goroutine leak detected: initial=%d, final=%d, leaked=%d", initial, final, leaked)
+	}
+}
+
+func TestScanCoordinator_CancelDuringActiveWait(t *testing.T) {
+	t.Parallel()
+
+	c := NewScanCoordinator()
+	ctx := context.Background()
+
+	// Hold update lock.
+	releaseUpdate, err := c.AcquireForUpdate(ctx)
+	if err != nil {
+		t.Fatalf("AcquireForUpdate() error = %v", err)
+	}
+
+	// Start scan in goroutine, it will block.
+	scanCtx, cancelScan := context.WithCancel(ctx)
+	errCh := make(chan error, 1)
+
+	go func() {
+		_, err := c.AcquireForScan(scanCtx)
+		errCh <- err
+	}()
+
+	// Give scan time to start waiting.
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel scan context while it's actively waiting.
+	cancelScan()
+
+	// Scan should return quickly with error.
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Error("Expected error from cancelled scan")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Scan did not return after context cancellation")
+	}
+
+	releaseUpdate()
+}
+
+func TestScanCoordinator_CancelUpdateDuringActiveWait(t *testing.T) {
+	t.Parallel()
+
+	c := NewScanCoordinator()
+	ctx := context.Background()
+
+	// Hold scan lock.
+	releaseScan, err := c.AcquireForScan(ctx)
+	if err != nil {
+		t.Fatalf("AcquireForScan() error = %v", err)
+	}
+
+	// Start update in goroutine, it will block.
+	updateCtx, cancelUpdate := context.WithCancel(ctx)
+	errCh := make(chan error, 1)
+
+	go func() {
+		_, err := c.AcquireForUpdate(updateCtx)
+		errCh <- err
+	}()
+
+	// Give update time to start waiting.
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel update context while it's actively waiting.
+	cancelUpdate()
+
+	// Update should return quickly with error.
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Error("Expected error from cancelled update")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Update did not return after context cancellation")
+	}
+
+	releaseScan()
+}
+
+func TestScanCoordinator_StressNoLeak(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping stress test in short mode")
+	}
+
+	c := NewScanCoordinator()
+	ctx := context.Background()
+
+	// Record initial goroutine count.
+	runtime.GC()
+	time.Sleep(10 * time.Millisecond)
+	initial := runtime.NumGoroutine()
+
+	var wg sync.WaitGroup
+	const scanners = 50
+	const updaters = 5
+	const iterations = 100
+
+	// Spawn scanners.
+	for i := 0; i < scanners; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				scanCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+				release, err := c.AcquireForScan(scanCtx)
+				cancel()
+				if err == nil {
+					time.Sleep(time.Microsecond)
+					release()
+				}
+			}
+		}()
+	}
+
+	// Spawn updaters.
+	for i := 0; i < updaters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations/10; j++ {
+				updateCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+				release, err := c.AcquireForUpdate(updateCtx)
+				cancel()
+				if err == nil {
+					time.Sleep(time.Millisecond)
+					release()
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Wait for cleanup.
+	time.Sleep(200 * time.Millisecond)
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+
+	final := runtime.NumGoroutine()
+	leaked := final - initial
+
+	if leaked > 5 {
+		t.Errorf("Goroutine leak: initial=%d, final=%d, leaked=%d", initial, final, leaked)
+	}
 }

@@ -6,7 +6,6 @@ package dbupdater
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 )
 
 // CoordinatorStatus represents the current state of the coordinator.
@@ -21,24 +20,33 @@ type CoordinatorStatus struct {
 // ScanCoordinator manages concurrent access between scans and database updates.
 // It implements RWLock semantics: multiple scans can run concurrently,
 // but updates are exclusive (no scans during update, no updates during scan).
+//
+// Uses channel-based signaling for context-aware waiting without goroutine leaks.
 type ScanCoordinator struct {
 	mu sync.Mutex
-
-	// Condition variable for waiting.
-	cond *sync.Cond
 
 	// activeScans tracks the number of active scan operations.
 	activeScans int32
 
 	// updating indicates if an update operation is in progress.
-	updating atomic.Bool
+	updating bool
+
+	// broadcast is closed to wake all waiters, then recreated.
+	broadcast chan struct{}
 }
 
 // NewScanCoordinator creates a new scan coordinator.
 func NewScanCoordinator() *ScanCoordinator {
-	c := &ScanCoordinator{}
-	c.cond = sync.NewCond(&c.mu)
-	return c
+	return &ScanCoordinator{
+		broadcast: make(chan struct{}),
+	}
+}
+
+// signal wakes all waiters by closing and recreating the broadcast channel.
+// Must be called with mu held.
+func (c *ScanCoordinator) signal() {
+	close(c.broadcast)
+	c.broadcast = make(chan struct{})
 }
 
 // AcquireForScan acquires the lock for a scan operation.
@@ -53,42 +61,36 @@ func (c *ScanCoordinator) AcquireForScan(ctx context.Context) (release func(), e
 	c.mu.Lock()
 
 	// Wait while update is in progress.
-	for c.updating.Load() {
-		// Check context in wait loop.
-		if err := ctx.Err(); err != nil {
-			c.mu.Unlock()
-			return nil, err
+	for c.updating {
+		// Capture current broadcast channel while holding lock.
+		wait := c.broadcast
+		c.mu.Unlock()
+
+		// Wait for either broadcast signal or context cancellation.
+		select {
+		case <-wait:
+			// State changed, re-acquire lock and re-check condition.
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 
-		// Use a goroutine to handle context cancellation during wait.
-		done := make(chan struct{})
-		go func() {
-			<-ctx.Done()
-			c.cond.Broadcast()
-		}()
-
-		c.cond.Wait()
-		close(done)
-
-		// Check context again after waking up.
-		if err := ctx.Err(); err != nil {
-			c.mu.Unlock()
-			return nil, err
-		}
+		c.mu.Lock()
 	}
 
-	// Increment active scans.
-	atomic.AddInt32(&c.activeScans, 1)
+	// Increment active scans while holding lock.
+	c.activeScans++
 	c.mu.Unlock()
 
 	// Return release function with once guard.
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			newCount := atomic.AddInt32(&c.activeScans, -1)
-			if newCount == 0 {
-				c.cond.Broadcast()
+			c.mu.Lock()
+			c.activeScans--
+			if c.activeScans == 0 {
+				c.signal()
 			}
+			c.mu.Unlock()
 		})
 	}, nil
 }
@@ -105,56 +107,58 @@ func (c *ScanCoordinator) AcquireForUpdate(ctx context.Context) (release func(),
 	c.mu.Lock()
 
 	// Wait while another update is in progress or scans are active.
-	for c.updating.Load() || atomic.LoadInt32(&c.activeScans) > 0 {
-		// Check context in wait loop.
-		if err := ctx.Err(); err != nil {
-			c.mu.Unlock()
-			return nil, err
+	for c.updating || c.activeScans > 0 {
+		// Capture current broadcast channel while holding lock.
+		wait := c.broadcast
+		c.mu.Unlock()
+
+		// Wait for either broadcast signal or context cancellation.
+		select {
+		case <-wait:
+			// State changed, re-acquire lock and re-check condition.
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 
-		// Use a goroutine to handle context cancellation during wait.
-		go func() {
-			<-ctx.Done()
-			c.cond.Broadcast()
-		}()
-
-		c.cond.Wait()
-
-		// Check context again after waking up.
-		if err := ctx.Err(); err != nil {
-			c.mu.Unlock()
-			return nil, err
-		}
+		c.mu.Lock()
 	}
 
-	// Mark update as in progress.
-	c.updating.Store(true)
+	// Mark update as in progress while holding lock.
+	c.updating = true
 	c.mu.Unlock()
 
 	// Return release function with once guard.
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			c.updating.Store(false)
-			c.cond.Broadcast()
+			c.mu.Lock()
+			c.updating = false
+			c.signal()
+			c.mu.Unlock()
 		})
 	}, nil
 }
 
 // HasActiveScans returns true if there are any active scan operations.
 func (c *ScanCoordinator) HasActiveScans() bool {
-	return atomic.LoadInt32(&c.activeScans) > 0
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.activeScans > 0
 }
 
 // IsUpdating returns true if an update operation is in progress.
 func (c *ScanCoordinator) IsUpdating() bool {
-	return c.updating.Load()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.updating
 }
 
 // Status returns the current coordinator status.
 func (c *ScanCoordinator) Status() CoordinatorStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return CoordinatorStatus{
-		ActiveScans:      int(atomic.LoadInt32(&c.activeScans)),
-		UpdateInProgress: c.updating.Load(),
+		ActiveScans:      int(c.activeScans),
+		UpdateInProgress: c.updating,
 	}
 }
