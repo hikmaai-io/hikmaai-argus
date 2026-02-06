@@ -27,7 +27,7 @@ type DownloaderConfig struct {
 func DefaultDownloaderConfig() DownloaderConfig {
 	return DownloaderConfig{
 		Timeout:   5 * time.Minute,
-		UserAgent: "HikmaAV/1.0",
+		UserAgent: "clamav/1.0.0",
 		MaxSize:   500 * 1024 * 1024, // 500MB max
 	}
 }

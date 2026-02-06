@@ -25,7 +25,7 @@ const (
 // Default ClamAV mirrors.
 var DefaultClamAVMirrors = []string{
 	"https://database.clamav.net",
-	"https://db.local.clamav.net",
+	"https://packages.microsoft.com/clamav",
 }
 
 // ClamAVUpdaterConfig configures the ClamAV updater.

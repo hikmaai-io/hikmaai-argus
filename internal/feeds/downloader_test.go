@@ -44,6 +44,14 @@ func TestDownloader_Download(t *testing.T) {
 			wantContent: "",
 			wantErr:     true,
 		},
+		{
+			name: "forbidden",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusForbidden)
+			},
+			wantContent: "",
+			wantErr:     true,
+		},
 	}
 
 	for _, tt := range tests {
