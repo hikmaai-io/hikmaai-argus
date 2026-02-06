@@ -49,29 +49,33 @@ func (s *ClamAVScanner) ScanFile(ctx context.Context, path string) (*types.ScanR
 	if err != nil {
 		return types.NewErrorScanResult(path, fmt.Sprintf("stat failed: %v", err)), nil
 	}
+	fileSize := fileInfo.Size()
 
 	// Check file size limit.
-	if s.config.MaxFileSize > 0 && fileInfo.Size() > s.config.MaxFileSize {
-		return types.NewErrorScanResult(path, fmt.Sprintf("file too large: %d bytes (max: %d)", fileInfo.Size(), s.config.MaxFileSize)), nil
+	if s.config.MaxFileSize > 0 && fileSize > s.config.MaxFileSize {
+		return types.NewErrorScanResult(path, fmt.Sprintf("file too large: %d bytes (max: %d)", fileSize, s.config.MaxFileSize)).
+			WithFileInfo(fileSize, ""), nil
 	}
 
 	// Calculate file hash.
 	fileHash, err := hashFile(path)
 	if err != nil {
-		return types.NewErrorScanResult(path, fmt.Sprintf("hash failed: %v", err)), nil
+		return types.NewErrorScanResult(path, fmt.Sprintf("hash failed: %v", err)).
+			WithFileInfo(fileSize, ""), nil
 	}
 
 	// Scan based on mode.
 	var result *types.ScanResult
 	switch s.Mode() {
 	case "clamd":
-		result, err = s.scanWithClamd(ctx, path, fileHash, fileInfo.Size())
+		result, err = s.scanWithClamd(ctx, path, fileHash, fileSize)
 	default:
-		result, err = s.scanWithClamscan(ctx, path, fileHash, fileInfo.Size())
+		result, err = s.scanWithClamscan(ctx, path, fileHash, fileSize)
 	}
 
 	if err != nil {
-		return types.NewErrorScanResult(path, err.Error()), nil
+		return types.NewErrorScanResult(path, err.Error()).
+			WithFileInfo(fileSize, fileHash), nil
 	}
 
 	// Add scan duration.
@@ -112,6 +116,8 @@ func (s *ClamAVScanner) scanWithClamscan(ctx context.Context, path, fileHash str
 			}
 		} else if cmdCtx.Err() != nil {
 			return nil, fmt.Errorf("scan timeout: %w", cmdCtx.Err())
+		} else {
+			return nil, fmt.Errorf("exec failed: %w", err)
 		}
 	}
 

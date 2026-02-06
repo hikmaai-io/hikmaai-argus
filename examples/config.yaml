@@ -45,7 +45,7 @@ feeds:
   sources:
     - eicar           # Built-in EICAR test signatures
     # - clamav        # ClamAV signature hashes (extracts from CVD files to DB)
-    # - clamav-db     # Downloads CVD files for clamscan (required for file scanning)
+    - clamav-db     # Downloads CVD files for clamscan (required for file scanning)
     # - malwarebazaar # abuse.ch MalwareBazaar hashes
     # - threatfox     # abuse.ch ThreatFox IOCs
 

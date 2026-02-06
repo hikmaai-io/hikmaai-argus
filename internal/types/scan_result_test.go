@@ -317,6 +317,27 @@ func TestScanResult_ToSignature(t *testing.T) {
 	}
 }
 
+func TestScanResult_WithFileInfo(t *testing.T) {
+	t.Parallel()
+
+	result := NewErrorScanResult("/path/to/file.txt", "clamscan error: no database").
+		WithFileInfo(2048, "abc123hash")
+
+	if result.FileSize != 2048 {
+		t.Errorf("FileSize = %d, want %d", result.FileSize, 2048)
+	}
+	if result.FileHash != "abc123hash" {
+		t.Errorf("FileHash = %q, want %q", result.FileHash, "abc123hash")
+	}
+	// Verify error status and message are preserved.
+	if result.Status != ScanStatusError {
+		t.Errorf("Status = %v, want %v", result.Status, ScanStatusError)
+	}
+	if result.Error != "clamscan error: no database" {
+		t.Errorf("Error = %q, want %q", result.Error, "clamscan error: no database")
+	}
+}
+
 func TestScanResult_ScannedAtIsUTC(t *testing.T) {
 	t.Parallel()
 

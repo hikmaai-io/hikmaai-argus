@@ -109,6 +109,14 @@ func (r *ScanResult) IsInfected() bool {
 	return r.Status.IsInfected()
 }
 
+// WithFileInfo sets the file size and hash, returning the result for chaining.
+// Use this to preserve file metadata on error results.
+func (r *ScanResult) WithFileInfo(size int64, hash string) *ScanResult {
+	r.FileSize = size
+	r.FileHash = hash
+	return r
+}
+
 // WithScanTime sets the scan duration and returns the result for chaining.
 func (r *ScanResult) WithScanTime(ms float64) *ScanResult {
 	r.ScanTimeMs = ms

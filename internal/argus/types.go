@@ -234,6 +234,7 @@ type InfectedFile struct {
 type ClamScanSummary struct {
 	FilesScanned  int   `json:"files_scanned"`
 	InfectedCount int   `json:"infected_count"`
+	ErrorCount    int   `json:"error_count"`
 	DataScanned   int64 `json:"data_scanned_bytes"`
 }
 

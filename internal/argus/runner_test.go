@@ -320,6 +320,81 @@ func TestRunner_RunAll_OnlyTrivy(t *testing.T) {
 	}
 }
 
+func TestConvertClamAVResults_AllErrors_SetsErrorCount(t *testing.T) {
+	t.Parallel()
+
+	results := []*types.ScanResult{
+		{
+			FilePath: "/tmp/file1.txt",
+			FileHash: "hash1",
+			FileSize: 512,
+			Status:   types.ScanStatusError,
+			Error:    "clamscan error: no database",
+		},
+		{
+			FilePath: "/tmp/file2.txt",
+			FileHash: "hash2",
+			FileSize: 1024,
+			Status:   types.ScanStatusError,
+			Error:    "clamscan error: no database",
+		},
+	}
+
+	clamResults := ConvertClamAVResults(results, 100*time.Millisecond)
+
+	if clamResults.ScanSummary.FilesScanned != 2 {
+		t.Errorf("FilesScanned = %d, want 2", clamResults.ScanSummary.FilesScanned)
+	}
+	if clamResults.ScanSummary.ErrorCount != 2 {
+		t.Errorf("ErrorCount = %d, want 2", clamResults.ScanSummary.ErrorCount)
+	}
+	if clamResults.ScanSummary.InfectedCount != 0 {
+		t.Errorf("InfectedCount = %d, want 0", clamResults.ScanSummary.InfectedCount)
+	}
+	if clamResults.ScanSummary.DataScanned != 1536 {
+		t.Errorf("DataScanned = %d, want 1536", clamResults.ScanSummary.DataScanned)
+	}
+}
+
+func TestConvertClamAVResults_MixedResults_SetsErrorCount(t *testing.T) {
+	t.Parallel()
+
+	results := []*types.ScanResult{
+		{
+			FilePath: "/tmp/clean.txt",
+			FileHash: "hash1",
+			FileSize: 256,
+			Status:   types.ScanStatusClean,
+		},
+		{
+			FilePath: "/tmp/error.txt",
+			FileHash: "hash2",
+			FileSize: 512,
+			Status:   types.ScanStatusError,
+			Error:    "clamscan error: no database",
+		},
+		{
+			FilePath: "/tmp/infected.txt",
+			FileHash: "hash3",
+			FileSize: 1024,
+			Status:   types.ScanStatusInfected,
+			Detection: "Eicar-Signature",
+		},
+	}
+
+	clamResults := ConvertClamAVResults(results, 200*time.Millisecond)
+
+	if clamResults.ScanSummary.ErrorCount != 1 {
+		t.Errorf("ErrorCount = %d, want 1", clamResults.ScanSummary.ErrorCount)
+	}
+	if clamResults.ScanSummary.InfectedCount != 1 {
+		t.Errorf("InfectedCount = %d, want 1", clamResults.ScanSummary.InfectedCount)
+	}
+	if clamResults.ScanSummary.FilesScanned != 3 {
+		t.Errorf("FilesScanned = %d, want 3", clamResults.ScanSummary.FilesScanned)
+	}
+}
+
 func TestRunner_ConvertTrivyResults(t *testing.T) {
 	t.Parallel()
 

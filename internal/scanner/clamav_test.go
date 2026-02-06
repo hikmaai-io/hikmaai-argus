@@ -246,6 +246,67 @@ func TestClamAVScanner_BuildCommand(t *testing.T) {
 	}
 }
 
+// TestClamAVScanner_ScanFile_PreservesFileInfoOnError verifies that error results
+// retain FileSize and FileHash when the scan command fails.
+func TestClamAVScanner_ScanFile_PreservesFileInfoOnError(t *testing.T) {
+	t.Parallel()
+
+	// Create a real file so os.Stat and hashFile succeed.
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0o644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Use a non-existent binary to force an exec error.
+	cfg := &config.ClamAVConfig{
+		Mode:    "clamscan",
+		Binary:  "/nonexistent/clamscan-binary",
+		Timeout: 10 * time.Second,
+	}
+
+	scanner := NewClamAVScanner(cfg)
+	ctx := context.Background()
+
+	result, err := scanner.ScanFile(ctx, testFile)
+	if err != nil {
+		t.Fatalf("ScanFile() returned unexpected error: %v", err)
+	}
+
+	// The result should be an error status but still have file info.
+	if result.Status != types.ScanStatusError {
+		t.Errorf("Status = %v, want %v", result.Status, types.ScanStatusError)
+	}
+	if result.FileSize == 0 {
+		t.Error("FileSize should be non-zero on error result")
+	}
+	if result.FileHash == "" {
+		t.Error("FileHash should be non-empty on error result")
+	}
+}
+
+// TestClamAVScanner_scanWithClamscan_BinaryNotFound verifies that a missing binary
+// returns an error instead of falling through to parseClamscanOutput.
+func TestClamAVScanner_scanWithClamscan_BinaryNotFound(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.ClamAVConfig{
+		Mode:   "clamscan",
+		Binary: "/nonexistent/clamscan-binary",
+	}
+
+	scanner := NewClamAVScanner(cfg)
+	ctx := context.Background()
+
+	_, err := scanner.scanWithClamscan(ctx, "/tmp/somefile.txt", "abc123", 1024)
+	if err == nil {
+		t.Fatal("scanWithClamscan() should return error for missing binary")
+	}
+	if !strings.Contains(err.Error(), "exec failed") {
+		t.Errorf("error = %q, should contain 'exec failed'", err.Error())
+	}
+}
+
 // TestClamAVScanner_ScanFile_Integration tests actual scanning if clamscan is available.
 // Skip if clamscan is not installed.
 func TestClamAVScanner_ScanFile_Integration(t *testing.T) {

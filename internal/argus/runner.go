@@ -226,13 +226,16 @@ func ConvertClamAVResults(results []*types.ScanResult, elapsed time.Duration) *C
 	for _, r := range results {
 		totalSize += r.FileSize
 
-		if r.Status == types.ScanStatusInfected {
+		switch {
+		case r.Status == types.ScanStatusInfected:
 			clamResults.InfectedFiles = append(clamResults.InfectedFiles, InfectedFile{
 				Path:       filepath.Base(r.FilePath),
 				ThreatName: r.Detection,
 				Hash:       r.FileHash,
 			})
 			clamResults.ScanSummary.InfectedCount++
+		case r.Status == types.ScanStatusError:
+			clamResults.ScanSummary.ErrorCount++
 		}
 	}
 
