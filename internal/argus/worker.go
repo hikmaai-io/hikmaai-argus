@@ -181,11 +181,21 @@ func (w *Worker) Stop() {
 }
 
 // processLoop is the main processing loop for a worker goroutine.
+// readBackoff controls exponential backoff on consecutive read errors.
+// Initial: 100ms, multiplier: 2x, cap: 5s. Resets on successful read.
+const (
+	readBackoffInitial = 100 * time.Millisecond
+	readBackoffMax     = 5 * time.Second
+	readBackoffFactor  = 2
+)
+
 func (w *Worker) processLoop(ctx context.Context, workerID int) {
 	defer w.wg.Done()
 
 	logger := w.logger.With(slog.Int("worker_id", workerID))
 	logger.Debug("worker started")
+
+	backoff := readBackoffInitial
 
 	for {
 		select {
@@ -201,9 +211,25 @@ func (w *Worker) processLoop(ctx context.Context, workerID int) {
 		// Read messages.
 		messages, err := w.consumer.Read(ctx, 1)
 		if err != nil {
-			logger.Error("reading from stream", slog.Any("error", err))
+			logger.Error("reading from stream",
+				slog.Any("error", err),
+				slog.Duration("backoff", backoff),
+			)
+
+			// Backoff before retrying to avoid tight error loops.
+			select {
+			case <-time.After(backoff):
+			case <-w.stopCh:
+				return
+			case <-ctx.Done():
+				return
+			}
+			backoff = min(backoff*readBackoffFactor, readBackoffMax)
 			continue
 		}
+
+		// Reset backoff on successful read (including empty reads).
+		backoff = readBackoffInitial
 
 		for _, msg := range messages {
 			w.processMessage(ctx, logger, msg)
