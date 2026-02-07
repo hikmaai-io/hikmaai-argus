@@ -464,7 +464,8 @@ func (a *clamAVScannerAdapter) ScanDirectory(ctx context.Context, path string) (
 func initDBUpdateService(cfg daemonConfig, eng *engine.Engine, logger *slog.Logger) *dbupdater.DBUpdateService {
 	// Create the DB update service.
 	service := dbupdater.NewDBUpdateService(dbupdater.DBUpdateServiceConfig{
-		Logger: logger,
+		Logger:           logger,
+		RunInitialUpdate: true,
 	})
 
 	// Register ClamAV updater.
