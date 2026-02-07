@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -123,7 +124,31 @@ func (c *StreamConsumer) Read(ctx context.Context, count int64) ([]StreamMessage
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("reading from stream %s: %w", c.streamKey, err)
+
+		// NOGROUP: stream or consumer group was deleted at runtime.
+		// Self-heal by recreating the group and retrying once.
+		if isNoGroupError(err) {
+			if healErr := c.EnsureGroup(ctx); healErr != nil {
+				return nil, fmt.Errorf("self-healing consumer group on %s: %w", c.streamKey, healErr)
+			}
+			// Retry the read once after recreating the group.
+			streams, err = rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+				Group:    c.consumerGroup,
+				Consumer: c.consumerName,
+				Streams:  []string{c.streamKey, c.startID},
+				Count:    count,
+				Block:    c.blockTimeout,
+			}).Result()
+			if err != nil {
+				if errors.Is(err, redis.Nil) {
+					return nil, nil
+				}
+				return nil, fmt.Errorf("reading from stream %s after self-heal: %w", c.streamKey, err)
+			}
+			// Fall through to message conversion below.
+		} else {
+			return nil, fmt.Errorf("reading from stream %s: %w", c.streamKey, err)
+		}
 	}
 
 	// Convert to our message type.
@@ -195,4 +220,12 @@ func isBusyGroupError(err error) bool {
 		return false
 	}
 	return err.Error() == "BUSYGROUP Consumer Group name already exists"
+}
+
+// isNoGroupError checks if the error is NOGROUP (stream or group missing).
+func isNoGroupError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "NOGROUP")
 }
