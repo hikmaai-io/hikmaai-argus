@@ -37,12 +37,16 @@ func newDaemonCmd() *cobra.Command {
 		clamDBDir          string
 		natsURL            string
 		httpAddr           string
+		logLevel           string
+		logFormat          string
 		trivyServerURL     string
 		trivyCacheTTL       time.Duration
 		trivyCacheDir       string
 		trivySkipDBUpdate   bool
 		// Argus worker flags.
 		argusWorkerEnabled bool
+		argusWorkers       int
+		scanWorkers        int
 		redisAddr          string
 		redisPassword      string
 		redisPrefix        string
@@ -82,6 +86,8 @@ and signature feeds with retry logic and scan coordination.`,
 				TrivyCacheDir:       trivyCacheDir,
 				TrivySkipDBUpdate:   trivySkipDBUpdate,
 				ArgusWorkerEnabled:  argusWorkerEnabled,
+				ArgusWorkers:        argusWorkers,
+				ScanWorkers:         scanWorkers,
 				RedisAddr:           redisAddr,
 				RedisPassword:       redisPassword,
 				RedisPrefix:         redisPrefix,
@@ -108,6 +114,8 @@ and signature feeds with retry logic and scan coordination.`,
 
 	// Argus worker flags.
 	cmd.Flags().BoolVar(&argusWorkerEnabled, "argus-worker", false, "enable Argus worker for Redis integration")
+	cmd.Flags().IntVar(&argusWorkers, "argus-workers", 2, "number of concurrent Argus task workers")
+	cmd.Flags().IntVar(&scanWorkers, "scan-workers", 2, "number of concurrent scan workers (ClamAV)")
 	cmd.Flags().StringVar(&redisAddr, "redis-addr", "localhost:6379", "Redis server address")
 	cmd.Flags().StringVar(&redisPassword, "redis-password", "", "Redis password for authentication")
 	cmd.Flags().StringVar(&redisPrefix, "redis-prefix", "argus:", "Redis key prefix")
@@ -136,6 +144,8 @@ type daemonConfig struct {
 	TrivySkipDBUpdate   bool
 	// Argus worker settings.
 	ArgusWorkerEnabled bool
+	ArgusWorkers       int
+	ScanWorkers        int
 	RedisAddr          string
 	RedisPassword      string
 	RedisPrefix        string
@@ -217,19 +227,23 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 	})
 
 	// Create scan worker.
+	scanConcurrency := cfg.ScanWorkers
+	if scanConcurrency < 1 {
+		scanConcurrency = 2
+	}
 	worker := scanner.NewWorker(scanner.WorkerConfig{
 		Scanner:         clamScanner,
 		JobStore:        jobStore,
 		ScanCache:       scanCache,
 		SignatureEngine: eng,
-		Concurrency:     2,
+		Concurrency:     scanConcurrency,
 	})
 
 	// Start worker.
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()
 	worker.Start(workerCtx)
-	logger.Info("scan worker started", slog.Int("workers", 2))
+	logger.Info("scan worker started", slog.Int("workers", scanConcurrency))
 
 	// Create Trivy scanner if configured.
 	var trivyScanner *trivy.Scanner
@@ -419,13 +433,17 @@ func initArgusWorker(ctx context.Context, cfg daemonConfig, clamScanner *scanner
 	}
 
 	// Create worker.
+	workers := cfg.ArgusWorkers
+	if workers < 1 {
+		workers = 2
+	}
 	worker, err := argus.NewWorker(
 		argus.WorkerConfig{
 			TaskQueue:         "argus_task_queue",
 			ConsumerGroup:     "argus-workers",
 			ConsumerName:      hostname,
 			CompletionPrefix:  "argus_completion",
-			Workers:           2,
+			Workers:           workers,
 			DefaultTimeout:    15 * time.Minute,
 			MaxRetries:        3,
 			CleanupOnComplete: true,
