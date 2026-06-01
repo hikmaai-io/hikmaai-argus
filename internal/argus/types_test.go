@@ -69,6 +69,36 @@ func TestArgusTaskMessage_Validate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "job id with path traversal",
+			msg: TaskMessage{
+				JobID:          "../../etc",
+				OrganizationID: "org-789",
+				GCSURI:         "gs://bucket/org-789/skills/skill.zip",
+				Scanners:       []string{"trivy"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "job id with slash",
+			msg: TaskMessage{
+				JobID:          "job/123",
+				OrganizationID: "org-789",
+				GCSURI:         "gs://bucket/org-789/skills/skill.zip",
+				Scanners:       []string{"trivy"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid uuid-style job id",
+			msg: TaskMessage{
+				JobID:          "550e8400-e29b-41d4-a716-446655440000",
+				OrganizationID: "org-789",
+				GCSURI:         "gs://bucket/org-789/skills/skill.zip",
+				Scanners:       []string{"trivy"},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

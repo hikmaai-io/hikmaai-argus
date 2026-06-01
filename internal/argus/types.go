@@ -6,9 +6,14 @@ package argus
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"time"
 )
+
+// jobIDPattern restricts job IDs to safe characters so they can be used in
+// filesystem paths and Redis keys without traversal or injection risk.
+var jobIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // ScannerName represents a supported scanner type.
 type ScannerName string
@@ -90,6 +95,9 @@ type TaskMessage struct {
 func (m *TaskMessage) Validate() error {
 	if m.JobID == "" {
 		return errors.New("job_id is required")
+	}
+	if !jobIDPattern.MatchString(m.JobID) {
+		return errors.New("job_id must match [A-Za-z0-9_-]{1,128}")
 	}
 	if m.OrganizationID == "" {
 		return errors.New("organization_id is required")

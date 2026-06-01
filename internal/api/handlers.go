@@ -24,6 +24,10 @@ import (
 	"github.com/hikmaai-io/hikmaai-argus/internal/types"
 )
 
+// multipartMemoryThreshold is the in-memory buffer size for multipart parsing.
+// Uploads larger than this spill to temp files instead of being held in RAM.
+const multipartMemoryThreshold = 10 * 1024 * 1024 // 10MB
+
 // DBUpdateStatusProvider provides status information about database updates.
 type DBUpdateStatusProvider interface {
 	GetStatus() map[string]*DBUpdateStatus
@@ -127,11 +131,19 @@ func (h *Handler) HandleUploadFile(w http.ResponseWriter, r *http.Request) {
 	// Limit request body size.
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxFileSize)
 
-	// Parse multipart form.
-	if err := r.ParseMultipartForm(h.maxFileSize); err != nil {
+	// Parse multipart form. The memory threshold is intentionally small: anything
+	// larger spills to temp files instead of buffering the full upload in RAM.
+	// MaxBytesReader above still caps the total request at maxFileSize.
+	if err := r.ParseMultipartForm(multipartMemoryThreshold); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("parsing form: %v", err))
 		return
 	}
+	// Remove any temp files created by the multipart parser on the way out.
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -351,9 +363,13 @@ func (h *Handler) HandleDependencyScan(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// trivyScanTimeout bounds a background dependency scan so the goroutine cannot leak.
+const trivyScanTimeout = 10 * time.Minute
+
 // processTrivyScan performs the Trivy scan in the background.
 func (h *Handler) processTrivyScan(job *TrivyJob) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), trivyScanTimeout)
+	defer cancel()
 
 	// Update status to running.
 	job.Status = "running"
@@ -437,31 +453,87 @@ type TrivyJob struct {
 
 // TrivyJobStore is an in-memory store for Trivy scan jobs.
 // For production, this should be replaced with persistent storage.
+// To bound memory, entries expire after trivyJobTTL and the store enforces a
+// maximum size, evicting the oldest entries when exceeded.
 type TrivyJobStore struct {
-	mu   sync.RWMutex
-	jobs map[string]*TrivyJob
+	mu      sync.RWMutex
+	jobs    map[string]*TrivyJob
+	ttl     time.Duration
+	maxSize int
 }
 
-// NewTrivyJobStore creates a new in-memory job store.
+const (
+	defaultTrivyJobTTL     = time.Hour
+	defaultTrivyJobMaxSize = 10000
+)
+
+// NewTrivyJobStore creates a new in-memory job store with default TTL and size.
 func NewTrivyJobStore() *TrivyJobStore {
 	return &TrivyJobStore{
-		jobs: make(map[string]*TrivyJob),
+		jobs:    make(map[string]*TrivyJob),
+		ttl:     defaultTrivyJobTTL,
+		maxSize: defaultTrivyJobMaxSize,
 	}
 }
 
-// Set stores a job.
+// Set stores a job, evicting expired entries first and the oldest entry if the
+// store is at capacity.
 func (s *TrivyJobStore) Set(id string, job *TrivyJob) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.evictExpiredLocked()
+
+	// If at capacity and inserting a new key, drop the oldest job.
+	if _, exists := s.jobs[id]; !exists && s.maxSize > 0 && len(s.jobs) >= s.maxSize {
+		s.evictOldestLocked()
+	}
+
 	s.jobs[id] = job
 }
 
-// Get retrieves a job by ID.
+// evictExpiredLocked removes jobs older than the TTL. Caller must hold the lock.
+func (s *TrivyJobStore) evictExpiredLocked() {
+	if s.ttl <= 0 {
+		return
+	}
+	cutoff := time.Now().Add(-s.ttl)
+	for id, job := range s.jobs {
+		if job.CreatedAt.Before(cutoff) {
+			delete(s.jobs, id)
+		}
+	}
+}
+
+// evictOldestLocked removes the single oldest job. Caller must hold the lock.
+func (s *TrivyJobStore) evictOldestLocked() {
+	var oldestID string
+	var oldestTime time.Time
+	for id, job := range s.jobs {
+		if oldestID == "" || job.CreatedAt.Before(oldestTime) {
+			oldestID = id
+			oldestTime = job.CreatedAt
+		}
+	}
+	if oldestID != "" {
+		delete(s.jobs, oldestID)
+	}
+}
+
+// Get retrieves a job by ID, treating expired entries as absent.
 func (s *TrivyJobStore) Get(id string) (*TrivyJob, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	job, ok := s.jobs[id]
-	return job, ok
+	ttl := s.ttl
+	s.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if ttl > 0 && job.CreatedAt.Before(time.Now().Add(-ttl)) {
+		s.Delete(id)
+		return nil, false
+	}
+	return job, true
 }
 
 // Delete removes a job.
@@ -475,7 +547,9 @@ func (s *TrivyJobStore) Delete(id string) {
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		fmt.Printf("error encoding JSON response: %v\n", err)
+	}
 }
 
 // writeError writes a JSON error response.

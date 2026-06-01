@@ -474,10 +474,91 @@ func ParseComposerLock(data []byte) ([]Package, error) {
 	return packages, nil
 }
 
-// ExtractArchive extracts an archive to a temporary directory.
+// Decompression limits guard against zip/tar bombs. Defaults are conservative;
+// callers needing different values should use ExtractArchiveWithLimits.
+const (
+	defaultMaxFileSize  = 100 * 1024 * 1024 // 100MB per extracted file
+	defaultMaxTotalSize = 500 * 1024 * 1024 // 500MB total uncompressed
+	defaultMaxEntries   = 10000             // max number of entries
+)
+
+// ExtractLimits bounds archive extraction to prevent decompression-bomb DoS.
+type ExtractLimits struct {
+	MaxFileSize  int64 // per-file uncompressed cap; <=0 uses default
+	MaxTotalSize int64 // total uncompressed cap; <=0 uses default
+	MaxEntries   int   // max entry count; <=0 uses default
+}
+
+func (l ExtractLimits) withDefaults() ExtractLimits {
+	if l.MaxFileSize <= 0 {
+		l.MaxFileSize = defaultMaxFileSize
+	}
+	if l.MaxTotalSize <= 0 {
+		l.MaxTotalSize = defaultMaxTotalSize
+	}
+	if l.MaxEntries <= 0 {
+		l.MaxEntries = defaultMaxEntries
+	}
+	return l
+}
+
+// extractState tracks running totals against the configured limits.
+type extractState struct {
+	limits  ExtractLimits
+	total   int64
+	entries int
+}
+
+func (s *extractState) addEntry() error {
+	s.entries++
+	if s.entries > s.limits.MaxEntries {
+		return fmt.Errorf("archive has too many entries (max %d)", s.limits.MaxEntries)
+	}
+	return nil
+}
+
+// copyLimited copies from src to dst enforcing per-file and total size budgets.
+func (s *extractState) copyLimited(dst io.Writer, src io.Reader) error {
+	remainingTotal := s.limits.MaxTotalSize - s.total
+	if remainingTotal <= 0 {
+		return fmt.Errorf("archive exceeds total size limit (max %d bytes)", s.limits.MaxTotalSize)
+	}
+	// Cap this file at the smaller of per-file limit and remaining total budget.
+	// +1 lets us detect when a file exceeds its own per-file cap.
+	perFileCap := s.limits.MaxFileSize
+	if perFileCap > remainingTotal {
+		perFileCap = remainingTotal
+	}
+	n, err := io.CopyN(dst, src, perFileCap+1)
+	s.total += n
+	if err == io.EOF {
+		if n > s.limits.MaxFileSize {
+			return fmt.Errorf("extracted file exceeds size limit (max %d bytes)", s.limits.MaxFileSize)
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// No EOF means we hit the cap: the file is larger than allowed.
+	if n > s.limits.MaxFileSize {
+		return fmt.Errorf("extracted file exceeds size limit (max %d bytes)", s.limits.MaxFileSize)
+	}
+	return fmt.Errorf("archive exceeds total size limit (max %d bytes)", s.limits.MaxTotalSize)
+}
+
+// ExtractArchive extracts an archive to a temporary directory using default limits.
 // Supports zip, tar, tar.gz, and tgz formats.
 // Returns the path to the extracted directory; caller must clean up.
 func ExtractArchive(path string) (string, error) {
+	return ExtractArchiveWithLimits(path, ExtractLimits{})
+}
+
+// ExtractArchiveWithLimits extracts an archive enforcing the given limits.
+// Supports zip, tar, tar.gz, and tgz formats.
+// Returns the path to the extracted directory; caller must clean up.
+func ExtractArchiveWithLimits(path string, limits ExtractLimits) (string, error) {
+	st := &extractState{limits: limits.withDefaults()}
 	ext := strings.ToLower(filepath.Ext(path))
 	name := strings.ToLower(filepath.Base(path))
 
@@ -490,11 +571,11 @@ func ExtractArchive(path string) (string, error) {
 
 	switch {
 	case ext == ".zip":
-		extractErr = extractZip(path, extractDir)
+		extractErr = extractZip(path, extractDir, st)
 	case ext == ".gz" || strings.HasSuffix(name, ".tar.gz") || ext == ".tgz":
-		extractErr = extractTarGz(path, extractDir)
+		extractErr = extractTarGz(path, extractDir, st)
 	case ext == ".tar":
-		extractErr = extractTar(path, extractDir)
+		extractErr = extractTar(path, extractDir, st)
 	default:
 		os.RemoveAll(extractDir)
 		return "", fmt.Errorf("unsupported archive format: %s", ext)
@@ -508,7 +589,7 @@ func ExtractArchive(path string) (string, error) {
 	return extractDir, nil
 }
 
-func extractZip(src, dest string) error {
+func extractZip(src, dest string, st *extractState) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return fmt.Errorf("opening zip: %w", err)
@@ -516,7 +597,7 @@ func extractZip(src, dest string) error {
 	defer r.Close()
 
 	for _, f := range r.File {
-		if err := extractZipFile(f, dest); err != nil {
+		if err := extractZipFile(f, dest, st); err != nil {
 			return err
 		}
 	}
@@ -524,8 +605,8 @@ func extractZip(src, dest string) error {
 	return nil
 }
 
-func extractZipFile(f *zip.File, dest string) error {
-	// Prevent zip slip
+func extractZipFile(f *zip.File, dest string, st *extractState) error {
+	// Prevent zip slip (must run before any extraction).
 	path := filepath.Join(dest, f.Name)
 	if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(dest)+string(os.PathSeparator)) {
 		return fmt.Errorf("invalid file path: %s", f.Name)
@@ -533,6 +614,11 @@ func extractZipFile(f *zip.File, dest string) error {
 
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(path, 0o755)
+	}
+
+	// Enforce entry-count limit per regular file.
+	if err := st.addEntry(); err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -551,11 +637,10 @@ func extractZipFile(f *zip.File, dest string) error {
 	}
 	defer outFile.Close()
 
-	_, err = io.Copy(outFile, rc)
-	return err
+	return st.copyLimited(outFile, rc)
 }
 
-func extractTarGz(src, dest string) error {
+func extractTarGz(src, dest string, st *extractState) error {
 	file, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("opening file: %w", err)
@@ -568,20 +653,20 @@ func extractTarGz(src, dest string) error {
 	}
 	defer gzr.Close()
 
-	return extractTarReader(tar.NewReader(gzr), dest)
+	return extractTarReader(tar.NewReader(gzr), dest, st)
 }
 
-func extractTar(src, dest string) error {
+func extractTar(src, dest string, st *extractState) error {
 	file, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("opening file: %w", err)
 	}
 	defer file.Close()
 
-	return extractTarReader(tar.NewReader(file), dest)
+	return extractTarReader(tar.NewReader(file), dest, st)
 }
 
-func extractTarReader(tr *tar.Reader, dest string) error {
+func extractTarReader(tr *tar.Reader, dest string, st *extractState) error {
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -591,7 +676,7 @@ func extractTarReader(tr *tar.Reader, dest string) error {
 			return fmt.Errorf("reading tar: %w", err)
 		}
 
-		// Prevent path traversal
+		// Prevent path traversal (must run before any extraction).
 		path := filepath.Join(dest, header.Name)
 		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(dest)+string(os.PathSeparator)) {
 			continue // Skip invalid paths
@@ -603,6 +688,9 @@ func extractTarReader(tr *tar.Reader, dest string) error {
 				return err
 			}
 		case tar.TypeReg:
+			if err := st.addEntry(); err != nil {
+				return err
+			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return err
 			}
@@ -610,7 +698,7 @@ func extractTarReader(tr *tar.Reader, dest string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(outFile, tr); err != nil {
+			if err := st.copyLimited(outFile, tr); err != nil {
 				outFile.Close()
 				return err
 			}

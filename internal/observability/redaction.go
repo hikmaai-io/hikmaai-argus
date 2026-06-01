@@ -19,6 +19,8 @@ var sensitivePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(api[_-]?key|apikey)=[^\s&]+`),
 	regexp.MustCompile(`(?i)(secret|client_secret)=[^\s&]+`),
 	regexp.MustCompile(`(?i)Bearer\s+[^\s]+`),
+	// Connection-string credentials, e.g. redis://user:pass@host, postgres://u:p@h.
+	regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^:/?#\s]+):[^@/?#\s]+@`),
 }
 
 // sensitiveReplacements contains the replacement patterns.
@@ -28,6 +30,7 @@ var sensitiveReplacements = []string{
 	"${1}=" + RedactionPlaceholder,
 	"${1}=" + RedactionPlaceholder,
 	"Bearer " + RedactionPlaceholder,
+	"${1}:" + RedactionPlaceholder + "@",
 }
 
 // sensitiveKeyPatterns are patterns for sensitive map keys.

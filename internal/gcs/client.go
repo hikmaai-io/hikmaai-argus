@@ -40,7 +40,14 @@ type Config struct {
 	// This works around googleapis/google-cloud-go#6139 where the SDK
 	// uses path-style URLs that fake-gcs-server doesn't support.
 	EmulatorHost string
+
+	// MaxDownloadSize caps the number of bytes downloaded per object to
+	// prevent disk-exhaustion DoS. <=0 uses DefaultMaxDownloadSize.
+	MaxDownloadSize int64
 }
+
+// DefaultMaxDownloadSize bounds a single object download (500MB).
+const DefaultMaxDownloadSize = 500 * 1024 * 1024
 
 // Validate checks that required fields are set.
 func (c *Config) Validate() error {
@@ -67,11 +74,12 @@ type DownloadResult struct {
 
 // Client wraps the GCS storage client.
 type Client struct {
-	storageClient *storage.Client
-	httpClient    *http.Client
-	bucket        string
-	downloadDir   string
-	emulatorHost  string // Non-empty when using emulator mode
+	storageClient   *storage.Client
+	httpClient      *http.Client
+	bucket          string
+	downloadDir     string
+	emulatorHost    string // Non-empty when using emulator mode
+	maxDownloadSize int64
 }
 
 // NewClient creates a new GCS client.
@@ -88,13 +96,19 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 		emulatorHost = os.Getenv("STORAGE_EMULATOR_HOST")
 	}
 
+	maxDownload := cfg.MaxDownloadSize
+	if maxDownload <= 0 {
+		maxDownload = DefaultMaxDownloadSize
+	}
+
 	// If using emulator, use HTTP client directly
 	if emulatorHost != "" {
 		return &Client{
-			httpClient:   &http.Client{},
-			bucket:       cfg.Bucket,
-			downloadDir:  cfg.DownloadDir,
-			emulatorHost: emulatorHost,
+			httpClient:      &http.Client{},
+			bucket:          cfg.Bucket,
+			downloadDir:     cfg.DownloadDir,
+			emulatorHost:    emulatorHost,
+			maxDownloadSize: maxDownload,
 		}, nil
 	}
 
@@ -110,10 +124,29 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 	}
 
 	return &Client{
-		storageClient: client,
-		bucket:        cfg.Bucket,
-		downloadDir:   cfg.DownloadDir,
+		storageClient:   client,
+		bucket:          cfg.Bucket,
+		downloadDir:     cfg.DownloadDir,
+		maxDownloadSize: maxDownload,
 	}, nil
+}
+
+// limitedCopy copies from src to dst, failing if the source exceeds the
+// configured maxDownloadSize. Returns the number of bytes written.
+func (c *Client) limitedCopy(dst io.Writer, src io.Reader) (int64, error) {
+	limit := c.maxDownloadSize
+	if limit <= 0 {
+		limit = DefaultMaxDownloadSize
+	}
+	// +1 lets us detect when the source exceeds the cap.
+	n, err := io.CopyN(dst, src, limit+1)
+	if err == io.EOF {
+		return n, nil
+	}
+	if err != nil {
+		return n, err
+	}
+	return n, fmt.Errorf("download exceeds size limit (max %d bytes)", limit)
 }
 
 // Close closes the GCS client.
@@ -182,11 +215,11 @@ func (c *Client) downloadViaHTTP(ctx context.Context, objectPath, localPath stri
 	}
 	defer file.Close()
 
-	// Download with hash computation.
+	// Download with hash computation, enforcing the size cap.
 	hasher := sha256.New()
 	writer := io.MultiWriter(file, hasher)
 
-	size, err := io.Copy(writer, resp.Body)
+	size, err := c.limitedCopy(writer, resp.Body)
 	if err != nil {
 		_ = os.Remove(localPath)
 		return nil, fmt.Errorf("downloading object: %w", err)
@@ -218,11 +251,11 @@ func (c *Client) downloadViaSDK(ctx context.Context, objectPath, localPath strin
 	}
 	defer file.Close()
 
-	// Download with hash computation.
+	// Download with hash computation, enforcing the size cap.
 	hasher := sha256.New()
 	writer := io.MultiWriter(file, hasher)
 
-	size, err := io.Copy(writer, reader)
+	size, err := c.limitedCopy(writer, reader)
 	if err != nil {
 		_ = os.Remove(localPath)
 		return nil, fmt.Errorf("downloading object: %w", err)

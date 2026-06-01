@@ -55,6 +55,16 @@ func TestRedactSensitive(t *testing.T) {
 			input:    "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
 			expected: "Authorization: Bearer [REDACTED]",
 		},
+		{
+			name:     "redis_uri_credentials",
+			input:    "redis://admin:s3cr3t@redis:6379",
+			expected: "redis://admin:[REDACTED]@redis:6379",
+		},
+		{
+			name:     "postgres_uri_credentials",
+			input:    "postgres://user:p%40ss@db.example.com:5432/app",
+			expected: "postgres://user:[REDACTED]@db.example.com:5432/app",
+		},
 	}
 
 	for _, tt := range tests {

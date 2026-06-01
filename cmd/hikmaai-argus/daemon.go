@@ -32,17 +32,17 @@ import (
 
 func newDaemonCmd() *cobra.Command {
 	var (
-		background         bool
-		dataDir            string
-		clamDBDir          string
-		natsURL            string
-		httpAddr           string
-		logLevel           string
-		logFormat          string
-		trivyServerURL     string
-		trivyCacheTTL       time.Duration
-		trivyCacheDir       string
-		trivySkipDBUpdate   bool
+		background        bool
+		dataDir           string
+		clamDBDir         string
+		natsURL           string
+		httpAddr          string
+		logLevel          string
+		logFormat         string
+		trivyServerURL    string
+		trivyCacheTTL     time.Duration
+		trivyCacheDir     string
+		trivySkipDBUpdate bool
 		// Argus worker flags.
 		argusWorkerEnabled bool
 		argusWorkers       int
@@ -53,9 +53,9 @@ func newDaemonCmd() *cobra.Command {
 		gcsBucket          string
 		gcsDownloadDir     string
 		// DB update service flags.
-		dbUpdateEnabled         bool
-		dbUpdateClamAVInterval  time.Duration
-		dbUpdateTrivyInterval   time.Duration
+		dbUpdateEnabled            bool
+		dbUpdateClamAVInterval     time.Duration
+		dbUpdateTrivyInterval      time.Duration
 		dbUpdateSignaturesInterval time.Duration
 	)
 
@@ -75,24 +75,24 @@ and signature feeds with retry logic and scan coordination.`,
 				return fmt.Errorf("background mode not yet implemented")
 			}
 			return runDaemon(cmd.Context(), daemonConfig{
-				DataDir:        dataDir,
-				ClamDBDir:      clamDBDir,
-				NatsURL:        natsURL,
-				HTTPAddr:       httpAddr,
-				LogLevel:       logLevel,
-				LogFormat:      logFormat,
-				TrivyServerURL: trivyServerURL,
-				TrivyCacheTTL:       trivyCacheTTL,
-				TrivyCacheDir:       trivyCacheDir,
-				TrivySkipDBUpdate:   trivySkipDBUpdate,
-				ArgusWorkerEnabled:  argusWorkerEnabled,
-				ArgusWorkers:        argusWorkers,
-				ScanWorkers:         scanWorkers,
-				RedisAddr:           redisAddr,
-				RedisPassword:       redisPassword,
-				RedisPrefix:         redisPrefix,
-				GCSBucket:           gcsBucket,
-				GCSDownloadDir:      gcsDownloadDir,
+				DataDir:            dataDir,
+				ClamDBDir:          clamDBDir,
+				NatsURL:            natsURL,
+				HTTPAddr:           httpAddr,
+				LogLevel:           logLevel,
+				LogFormat:          logFormat,
+				TrivyServerURL:     trivyServerURL,
+				TrivyCacheTTL:      trivyCacheTTL,
+				TrivyCacheDir:      trivyCacheDir,
+				TrivySkipDBUpdate:  trivySkipDBUpdate,
+				ArgusWorkerEnabled: argusWorkerEnabled,
+				ArgusWorkers:       argusWorkers,
+				ScanWorkers:        scanWorkers,
+				RedisAddr:          redisAddr,
+				RedisPassword:      redisPassword,
+				RedisPrefix:        redisPrefix,
+				GCSBucket:          gcsBucket,
+				GCSDownloadDir:     gcsDownloadDir,
 				// DB update service config.
 				DBUpdateEnabled:            dbUpdateEnabled,
 				DBUpdateClamAVInterval:     dbUpdateClamAVInterval,
@@ -132,16 +132,16 @@ and signature feeds with retry logic and scan coordination.`,
 }
 
 type daemonConfig struct {
-	DataDir        string
-	ClamDBDir      string
-	NatsURL        string
-	HTTPAddr       string
-	LogLevel       string
-	LogFormat      string
-	TrivyServerURL string
-	TrivyCacheTTL       time.Duration
-	TrivyCacheDir       string
-	TrivySkipDBUpdate   bool
+	DataDir           string
+	ClamDBDir         string
+	NatsURL           string
+	HTTPAddr          string
+	LogLevel          string
+	LogFormat         string
+	TrivyServerURL    string
+	TrivyCacheTTL     time.Duration
+	TrivyCacheDir     string
+	TrivySkipDBUpdate bool
 	// Argus worker settings.
 	ArgusWorkerEnabled bool
 	ArgusWorkers       int
@@ -301,6 +301,13 @@ func runDaemon(ctx context.Context, cfg daemonConfig) error {
 	httpServer := &http.Server{
 		Addr:    cfg.HTTPAddr,
 		Handler: api.LoggingMiddleware(mux),
+		// Timeouts protect against slow-client (Slowloris) and resource exhaustion.
+		// ReadHeaderTimeout is short; ReadTimeout/WriteTimeout are generous because
+		// uploads can be large but must still make steady progress.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
 	}
 
 	go func() {
