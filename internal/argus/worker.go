@@ -189,6 +189,24 @@ const (
 	readBackoffFactor  = 2
 )
 
+// jobContext decouples an in-flight job from the daemon's SIGTERM context.
+//
+// The loop context is derived from signal.NotifyContext, so it cancels the
+// instant the pod receives SIGTERM (e.g. a rolling deploy). A job is ACKed off
+// the stream the moment it is read, so if its scanner/download/publish steps ran
+// under that context they would abort on shutdown and the completion signal
+// would never be published — leaving the AS3 worker blocked on the missing
+// result until its long collection timeout, and the report stuck "in progress".
+//
+// Once a job is picked up we run it under a context that preserves the parent's
+// values but is NOT cancelled by SIGTERM, so the scan finishes and publishes its
+// result. New jobs are still gated by the loop's stopCh/ctx.Done() check, and
+// Stop() waits (wg.Wait) for the in-flight job to drain — bounded by the
+// per-task timeout and the user-cancellation listener layered on top.
+func jobContext(ctx context.Context) context.Context {
+	return context.WithoutCancel(ctx)
+}
+
 func (w *Worker) processLoop(ctx context.Context, workerID int) {
 	defer w.wg.Done()
 
@@ -259,13 +277,20 @@ func (w *Worker) processMessage(ctx context.Context, logger *slog.Logger, msg re
 		slog.String("org_id", task.OrganizationID),
 	)
 
+	// From here the job is committed to this worker. Run it under a context
+	// decoupled from the daemon's SIGTERM so a rollout mid-scan still finishes
+	// and publishes the completion (the message is ACKed below, so it would
+	// otherwise be lost). New jobs remain gated by the loop's stopCh check, and
+	// Stop() waits for this to drain.
+	jobCtx := jobContext(ctx)
+
 	// Acknowledge immediately to prevent redelivery during long processing.
-	if err := w.consumer.Ack(ctx, msg.ID); err != nil {
+	if err := w.consumer.Ack(jobCtx, msg.ID); err != nil {
 		logger.Error("acknowledging message", slog.Any("error", err))
 	}
 
 	// Process the task.
-	w.processTask(ctx, logger, task)
+	w.processTask(jobCtx, logger, task)
 }
 
 // processTask handles the full scan workflow.
