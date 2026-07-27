@@ -5,6 +5,7 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,9 +168,9 @@ func TestExtractEngineVersion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		output  string
-		want    string
+		name   string
+		output string
+		want   string
 	}{
 		{
 			name:   "standard format",
@@ -244,6 +245,108 @@ func TestClamAVScanner_BuildCommand(t *testing.T) {
 	if args[len(args)-1] != "/path/to/file.txt" {
 		t.Errorf("Last arg = %q, want file path", args[len(args)-1])
 	}
+}
+
+func TestClamAVScanner_ScanDir_UsesSingleProcess(t *testing.T) {
+	t.Parallel()
+
+	scanDir := t.TempDir()
+	cleanFile := filepath.Join(scanDir, "clean.txt")
+	infectedFile := filepath.Join(scanDir, "infected.txt")
+	if err := os.WriteFile(cleanFile, []byte("clean"), 0o644); err != nil {
+		t.Fatalf("write clean file: %v", err)
+	}
+	if err := os.WriteFile(infectedFile, []byte("infected"), 0o644); err != nil {
+		t.Fatalf("write infected file: %v", err)
+	}
+
+	counterFile := filepath.Join(t.TempDir(), "invocations")
+	fakeClamscan := filepath.Join(t.TempDir(), "clamscan")
+	script := fmt.Sprintf(
+		"#!/bin/sh\nprintf 'x\\n' >> %q\nprintf '%s: OK\\n'\nprintf '%s: Eicar-Test-Signature FOUND\\n'\nexit 1\n",
+		counterFile,
+		cleanFile,
+		infectedFile,
+	)
+	if err := os.WriteFile(fakeClamscan, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake clamscan: %v", err)
+	}
+
+	scanner := NewClamAVScanner(&config.ClamAVConfig{
+		Mode:    "clamscan",
+		Binary:  fakeClamscan,
+		Timeout: time.Minute,
+	})
+
+	results, err := scanner.ScanDir(context.Background(), scanDir, true)
+	if err != nil {
+		t.Fatalf("ScanDir() error = %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("ScanDir() returned %d results, want 2", len(results))
+	}
+
+	invocations, err := os.ReadFile(counterFile)
+	if err != nil {
+		t.Fatalf("read invocation counter: %v", err)
+	}
+	if got := strings.Count(string(invocations), "x\n"); got != 1 {
+		t.Errorf("clamscan invocations = %d, want 1", got)
+	}
+
+	var infected *types.ScanResult
+	for _, result := range results {
+		if result.Status == types.ScanStatusInfected {
+			infected = result
+			break
+		}
+	}
+	if infected == nil {
+		t.Fatal("infected result not found")
+	}
+	if infected.FilePath != infectedFile {
+		t.Errorf("infected path = %q, want %q", infected.FilePath, infectedFile)
+	}
+	expectedHash, err := hashFile(infectedFile)
+	if err != nil {
+		t.Fatalf("hash infected file: %v", err)
+	}
+	if infected.FileHash != expectedHash {
+		t.Errorf("infected hash = %q, want %q", infected.FileHash, expectedHash)
+	}
+
+	for _, result := range results {
+		if result.FileHash == "" {
+			t.Errorf("file hash is empty for %q", result.FilePath)
+		}
+	}
+}
+
+func TestClamAVScanner_BuildDirectoryCommand(t *testing.T) {
+	t.Parallel()
+
+	scanner := NewClamAVScanner(&config.ClamAVConfig{
+		DatabaseDir: "/var/lib/clamav",
+	})
+
+	recursiveArgs := scanner.buildClamscanDirArgs("/scan", true)
+	if !containsArg(recursiveArgs, "--recursive") {
+		t.Errorf("recursive args = %v, want --recursive", recursiveArgs)
+	}
+
+	flatArgs := scanner.buildClamscanDirArgs("/scan", false)
+	if containsArg(flatArgs, "--recursive") {
+		t.Errorf("flat args = %v, do not want --recursive", flatArgs)
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestClamAVScanner_ScanFile_PreservesFileInfoOnError verifies that error results

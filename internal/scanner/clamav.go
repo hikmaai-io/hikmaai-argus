@@ -87,42 +87,14 @@ func (s *ClamAVScanner) ScanFile(ctx context.Context, path string) (*types.ScanR
 
 // scanWithClamscan uses the clamscan binary to scan a file.
 func (s *ClamAVScanner) scanWithClamscan(ctx context.Context, path, fileHash string, fileSize int64) (*types.ScanResult, error) {
-	binary := s.config.Binary
-	if binary == "" {
-		binary = "clamscan"
-	}
-
 	args := s.buildClamscanArgs(path)
-
-	// Create command with context and timeout.
-	cmdCtx := ctx
-	if s.config.Timeout > 0 {
-		var cancel context.CancelFunc
-		cmdCtx, cancel = context.WithTimeout(ctx, s.config.Timeout)
-		defer cancel()
-	}
-
-	cmd := exec.CommandContext(cmdCtx, binary, args...)
-
-	// Capture output.
-	output, err := cmd.CombinedOutput()
-
-	// clamscan returns exit code 1 for infections, which is not an error.
+	output, err := s.runClamscan(ctx, args)
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Exit code 1 = virus found, 2 = error.
-			if exitErr.ExitCode() == 2 {
-				return nil, fmt.Errorf("clamscan error: %s", string(output))
-			}
-		} else if cmdCtx.Err() != nil {
-			return nil, fmt.Errorf("scan timeout: %w", cmdCtx.Err())
-		} else {
-			return nil, fmt.Errorf("exec failed: %w", err)
-		}
+		return nil, err
 	}
 
 	// Parse the output.
-	result, err := parseClamscanOutput(path, string(output))
+	result, err := parseClamscanOutput(path, output)
 	if err != nil {
 		return nil, fmt.Errorf("parsing output: %w", err)
 	}
@@ -131,6 +103,37 @@ func (s *ClamAVScanner) scanWithClamscan(ctx context.Context, path, fileHash str
 	result.FileSize = fileSize
 
 	return result, nil
+}
+
+func (s *ClamAVScanner) runClamscan(ctx context.Context, args []string) (string, error) {
+	binary := s.config.Binary
+	if binary == "" {
+		binary = "clamscan"
+	}
+
+	cmdCtx := ctx
+	if s.config.Timeout > 0 {
+		var cancel context.CancelFunc
+		cmdCtx, cancel = context.WithTimeout(ctx, s.config.Timeout)
+		defer cancel()
+	}
+
+	output, err := exec.CommandContext(cmdCtx, binary, args...).CombinedOutput()
+	if cmdCtx.Err() != nil {
+		return string(output), fmt.Errorf("scan timeout: %w", cmdCtx.Err())
+	}
+	if err == nil {
+		return string(output), nil
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		return string(output), fmt.Errorf("exec failed: %w", err)
+	}
+	if exitErr.ExitCode() == 1 {
+		return string(output), nil
+	}
+	return string(output), fmt.Errorf("clamscan error: %s", string(output))
 }
 
 // scanWithClamd uses the clamd daemon to scan a file.
@@ -142,6 +145,19 @@ func (s *ClamAVScanner) scanWithClamd(ctx context.Context, path, fileHash string
 
 // buildClamscanArgs builds the command-line arguments for clamscan.
 func (s *ClamAVScanner) buildClamscanArgs(path string) []string {
+	args := s.buildClamscanBaseArgs()
+	return append(args, path)
+}
+
+func (s *ClamAVScanner) buildClamscanDirArgs(path string, recursive bool) []string {
+	args := s.buildClamscanBaseArgs()
+	if recursive {
+		args = append(args, "--recursive")
+	}
+	return append(args, path)
+}
+
+func (s *ClamAVScanner) buildClamscanBaseArgs() []string {
 	args := []string{}
 
 	// Add database directory if specified.
@@ -152,15 +168,12 @@ func (s *ClamAVScanner) buildClamscanArgs(path string) []string {
 	// Enable recursive archive scanning (scans inside nested zips).
 	// This is essential for detecting malware in nested archives like eicar_com2.zip.
 	args = append(args,
-		"--scan-archive=yes",      // Scan inside archives (default, but explicit)
-		"--max-recursion=10",      // Allow nested archive scanning (default is 17)
-		"--max-files=10000",       // Max files to scan in archive
-		"--max-scansize=100M",     // Max data to scan in archive
-		"--max-filesize=100M",     // Max file size to scan
+		"--scan-archive=yes",  // Scan inside archives (default, but explicit)
+		"--max-recursion=10",  // Allow nested archive scanning (default is 17)
+		"--max-files=10000",   // Max files to scan in archive
+		"--max-scansize=100M", // Max data to scan in archive
+		"--max-filesize=100M", // Max file size to scan
 	)
-
-	// Add the file path.
-	args = append(args, path)
 
 	return args
 }
@@ -200,63 +213,64 @@ func parseClamscanOutput(filePath, output string) (*types.ScanResult, error) {
 		return nil, fmt.Errorf("empty clamscan output")
 	}
 
-	result := &types.ScanResult{
-		FilePath:  filePath,
-		Engine:    "clamav",
-		ScannedAt: time.Now().UTC(),
+	results := parseClamscanResults(output)
+	for _, result := range results {
+		if result.FilePath == filePath {
+			return result, nil
+		}
 	}
+	if len(results) > 0 {
+		return results[0], nil
+	}
+	return nil, fmt.Errorf("no file result in clamscan output")
+}
 
-	// Extract engine version from summary.
-	result.EngineVersion = extractEngineVersion(output)
+func parseClamscanResults(output string) []*types.ScanResult {
+	engineVersion := extractEngineVersion(output)
+	scannedAt := time.Now().UTC()
+	results := make([]*types.ScanResult, 0)
 
-	// Parse line by line looking for file result.
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and summary section.
 		if line == "" || strings.HasPrefix(line, "---") {
 			continue
 		}
 
-		// Look for file scan result lines.
-		// Format: /path/to/file: RESULT
-		if strings.Contains(line, ": ") {
-			parts := strings.SplitN(line, ": ", 2)
-			if len(parts) != 2 {
-				continue
-			}
-
-			resultPart := strings.TrimSpace(parts[1])
-
-			// Check for FOUND (infection).
-			if strings.HasSuffix(resultPart, " FOUND") {
-				detection := strings.TrimSuffix(resultPart, " FOUND")
-				result.Status = types.ScanStatusInfected
-				result.Detection = detection
-				result.ThreatType = types.ThreatTypeFromDetection(detection)
-				result.Severity = types.SeverityFromDetection(detection)
-				return result, nil
-			}
-
-			// Check for ERROR.
-			if strings.HasSuffix(resultPart, " ERROR") || strings.Contains(resultPart, "ERROR") {
-				result.Status = types.ScanStatusError
-				result.Error = resultPart
-				return result, nil
-			}
-
-			// Check for OK (clean).
-			if resultPart == "OK" {
-				result.Status = types.ScanStatusClean
-				return result, nil
-			}
+		parts := strings.SplitN(line, ": ", 2)
+		if len(parts) != 2 {
+			continue
 		}
+		filePath := parts[0]
+		resultPart := strings.TrimSpace(parts[1])
+
+		result := &types.ScanResult{
+			FilePath:      filePath,
+			Engine:        "clamav",
+			EngineVersion: engineVersion,
+			ScannedAt:     scannedAt,
+		}
+
+		switch {
+		case strings.HasSuffix(resultPart, " FOUND"):
+			detection := strings.TrimSuffix(resultPart, " FOUND")
+			result.Status = types.ScanStatusInfected
+			result.Detection = detection
+			result.ThreatType = types.ThreatTypeFromDetection(detection)
+			result.Severity = types.SeverityFromDetection(detection)
+		case strings.HasSuffix(resultPart, " ERROR"),
+			strings.Contains(resultPart, "ERROR"):
+			result.Status = types.ScanStatusError
+			result.Error = resultPart
+		case resultPart == "OK":
+			result.Status = types.ScanStatusClean
+		default:
+			continue
+		}
+		results = append(results, result)
 	}
 
-	// Default to clean if no detection found.
-	result.Status = types.ScanStatusClean
-	return result, nil
+	return results
 }
 
 // extractEngineVersion extracts the engine version from clamscan output.
@@ -290,6 +304,40 @@ func hashFile(path string) (string, error) {
 
 // ScanDir scans a directory for malware.
 func (s *ClamAVScanner) ScanDir(ctx context.Context, path string, recursive bool) ([]*types.ScanResult, error) {
+	if s.Mode() == "clamscan" {
+		return s.scanDirWithClamscan(ctx, path, recursive)
+	}
+	return s.scanDirFileByFile(ctx, path, recursive)
+}
+
+func (s *ClamAVScanner) scanDirWithClamscan(ctx context.Context, path string, recursive bool) ([]*types.ScanResult, error) {
+	start := time.Now()
+	output, err := s.runClamscan(ctx, s.buildClamscanDirArgs(path, recursive))
+	if err != nil {
+		return nil, err
+	}
+
+	results := parseClamscanResults(output)
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no file results in clamscan output")
+	}
+
+	elapsedMs := float64(time.Since(start).Milliseconds())
+	for _, result := range results {
+		info, statErr := os.Stat(result.FilePath)
+		if statErr == nil {
+			result.FileSize = info.Size()
+		}
+		fileHash, hashErr := hashFile(result.FilePath)
+		if hashErr == nil {
+			result.FileHash = fileHash
+		}
+		result.ScanTimeMs = elapsedMs
+	}
+	return results, nil
+}
+
+func (s *ClamAVScanner) scanDirFileByFile(ctx context.Context, path string, recursive bool) ([]*types.ScanResult, error) {
 	var results []*types.ScanResult
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {

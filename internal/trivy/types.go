@@ -6,6 +6,7 @@ package trivy
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -137,6 +138,7 @@ type Vulnerability struct {
 	Package      string   `json:"package"`
 	Version      string   `json:"version"`
 	Ecosystem    string   `json:"ecosystem"`
+	Target       string   `json:"target,omitempty"`
 	CVEID        string   `json:"cve_id"`
 	Severity     string   `json:"severity"`
 	Title        string   `json:"title"`
@@ -157,6 +159,54 @@ func (v Vulnerability) MatchesSeverityFilter(filter []string) bool {
 		}
 	}
 	return false
+}
+
+// DeduplicateVulnerabilities returns the canonical vulnerability set in input
+// order. Trivy can report the same package CVE more than once when multiple
+// result sections or cached and live results overlap.
+func DeduplicateVulnerabilities(vulnerabilities []Vulnerability) []Vulnerability {
+	if len(vulnerabilities) < 2 {
+		return vulnerabilities
+	}
+
+	type identity struct {
+		cveID        string
+		pkg          string
+		version      string
+		ecosystem    string
+		target       string
+		fixedVersion string
+		severity     string
+		title        string
+	}
+
+	normalize := func(value string) string {
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+
+	seen := make(map[identity]struct{}, len(vulnerabilities))
+	canonical := make([]Vulnerability, 0, len(vulnerabilities))
+	for _, vulnerability := range vulnerabilities {
+		key := identity{
+			cveID:     normalize(vulnerability.CVEID),
+			pkg:       normalize(vulnerability.Package),
+			version:   normalize(vulnerability.Version),
+			ecosystem: normalize(vulnerability.Ecosystem),
+			target:    normalize(vulnerability.Target),
+		}
+		if key.cveID == "" {
+			key.fixedVersion = normalize(vulnerability.FixedVersion)
+			key.severity = normalize(vulnerability.Severity)
+			key.title = normalize(vulnerability.Title)
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		canonical = append(canonical, vulnerability)
+	}
+
+	return canonical
 }
 
 // ScanSummary provides counts by severity.
@@ -385,11 +435,12 @@ type TwirpScanResponse struct {
 }
 
 // ToVulnerability converts a Twirp vulnerability to our Vulnerability type.
-func (tv TwirpVulnerability) ToVulnerability(ecosystem string) Vulnerability {
+func (tv TwirpVulnerability) ToVulnerability(ecosystem, target string) Vulnerability {
 	return Vulnerability{
 		Package:      tv.PkgName,
 		Version:      tv.InstalledVersion,
 		Ecosystem:    ecosystem,
+		Target:       target,
 		CVEID:        tv.VulnerabilityID,
 		Severity:     tv.Severity,
 		Title:        tv.Title,

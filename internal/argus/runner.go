@@ -158,24 +158,27 @@ func ConvertTrivyResults(tr *trivy.ScanResult) *TrivyResults {
 		return nil
 	}
 
+	canonical := trivy.DeduplicateVulnerabilities(tr.Vulnerabilities)
+	summary := trivy.NewScanSummary(canonical, tr.Summary.PackagesScanned)
 	result := &TrivyResults{
 		Summary: TrivySummary{
-			TotalVulnerabilities: tr.Summary.TotalVulnerabilities,
-			Critical:             tr.Summary.Critical,
-			High:                 tr.Summary.High,
-			Medium:               tr.Summary.Medium,
-			Low:                  tr.Summary.Low,
-			PackagesScanned:      tr.Summary.PackagesScanned,
+			TotalVulnerabilities: summary.TotalVulnerabilities,
+			Critical:             summary.Critical,
+			High:                 summary.High,
+			Medium:               summary.Medium,
+			Low:                  summary.Low,
+			PackagesScanned:      summary.PackagesScanned,
 		},
 		ScanTimeMs: tr.ScanTimeMs,
 	}
 
 	// Convert vulnerabilities.
-	for _, v := range tr.Vulnerabilities {
+	for _, v := range canonical {
 		result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
 			Package:      v.Package,
 			Version:      v.Version,
 			Ecosystem:    v.Ecosystem,
+			Target:       v.Target,
 			CVEID:        v.CVEID,
 			Severity:     v.Severity,
 			Title:        v.Title,

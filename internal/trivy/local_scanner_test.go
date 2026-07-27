@@ -144,6 +144,44 @@ func TestMapTypeToEcosystem(t *testing.T) {
 	}
 }
 
+func TestLocalScanner_ConvertReport_PreservesTargetAndDeduplicates(t *testing.T) {
+	t.Parallel()
+
+	vulnerability := TrivyJSONVulnItem{
+		VulnerabilityID:  "CVE-2026-2001",
+		PkgName:          "urllib3",
+		InstalledVersion: "1.26.0",
+		Severity:         SeverityMedium,
+		Title:            "Redirect issue",
+	}
+	report := &TrivyJSONReport{
+		Results: []TrivyJSONResult{
+			{
+				Target:          "requirements.txt",
+				Type:            "pip",
+				Packages:        []TrivyJSONPackage{{Name: "urllib3"}},
+				Vulnerabilities: []TrivyJSONVulnItem{vulnerability, vulnerability},
+			},
+		},
+	}
+
+	result := (&LocalScanner{}).convertReport(report, time.Now())
+
+	if len(result.Vulnerabilities) != 1 {
+		t.Fatalf("vulnerabilities len = %d, want 1", len(result.Vulnerabilities))
+	}
+	if result.Vulnerabilities[0].Target != "requirements.txt" {
+		t.Errorf("target = %q, want requirements.txt", result.Vulnerabilities[0].Target)
+	}
+	if result.Summary.TotalVulnerabilities != len(result.Vulnerabilities) {
+		t.Errorf(
+			"summary total = %d, findings = %d",
+			result.Summary.TotalVulnerabilities,
+			len(result.Vulnerabilities),
+		)
+	}
+}
+
 // createTestZip creates a zip file with the given files.
 func createTestZip(t *testing.T, zipPath string, files map[string]string) {
 	t.Helper()
