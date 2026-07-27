@@ -525,3 +525,45 @@ func TestScanSummary_Recalculate(t *testing.T) {
 		t.Errorf("packages scanned mismatch: got %d, want 10", summary.PackagesScanned)
 	}
 }
+
+func TestDeduplicateVulnerabilities(t *testing.T) {
+	t.Parallel()
+
+	base := Vulnerability{
+		Package:   "requests",
+		Version:   "2.25.0",
+		Ecosystem: EcosystemPip,
+		CVEID:     "CVE-2026-1001",
+		Severity:  SeverityHigh,
+		Target:    "requirements.txt",
+	}
+	vulnerabilities := []Vulnerability{
+		base,
+		base,
+		{
+			Package:   base.Package,
+			Version:   base.Version,
+			Ecosystem: base.Ecosystem,
+			CVEID:     "CVE-2026-1002",
+			Severity:  SeverityHigh,
+			Target:    base.Target,
+		},
+		{
+			Package:   base.Package,
+			Version:   base.Version,
+			Ecosystem: base.Ecosystem,
+			CVEID:     base.CVEID,
+			Severity:  SeverityHigh,
+			Target:    "poetry.lock",
+		},
+	}
+
+	got := DeduplicateVulnerabilities(vulnerabilities)
+
+	if len(got) != 3 {
+		t.Fatalf("DeduplicateVulnerabilities() len = %d, want 3", len(got))
+	}
+	if got[0].CVEID != base.CVEID || got[0].Target != base.Target {
+		t.Errorf("first occurrence was not preserved: got %+v", got[0])
+	}
+}

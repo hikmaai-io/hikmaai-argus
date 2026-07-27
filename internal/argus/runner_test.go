@@ -374,10 +374,10 @@ func TestConvertClamAVResults_MixedResults_SetsErrorCount(t *testing.T) {
 			Error:    "clamscan error: no database",
 		},
 		{
-			FilePath: "/tmp/infected.txt",
-			FileHash: "hash3",
-			FileSize: 1024,
-			Status:   types.ScanStatusInfected,
+			FilePath:  "/tmp/infected.txt",
+			FileHash:  "hash3",
+			FileSize:  1024,
+			Status:    types.ScanStatusInfected,
 			Detection: "Eicar-Signature",
 		},
 	}
@@ -431,5 +431,57 @@ func TestRunner_ConvertTrivyResults(t *testing.T) {
 	}
 	if argusResult.ScanTimeMs != 200.5 {
 		t.Errorf("ScanTimeMs = %f, want 200.5", argusResult.ScanTimeMs)
+	}
+}
+
+func TestConvertTrivyResults_UsesCanonicalVulnerabilities(t *testing.T) {
+	t.Parallel()
+
+	vulnerability := trivy.Vulnerability{
+		Package:   "requests",
+		Version:   "2.25.0",
+		Ecosystem: trivy.EcosystemPip,
+		CVEID:     "CVE-2026-3001",
+		Severity:  trivy.SeverityHigh,
+		Target:    "requirements.txt",
+	}
+	trivyResult := &trivy.ScanResult{
+		Summary: trivy.ScanSummary{
+			TotalVulnerabilities: 3,
+			High:                 3,
+			PackagesScanned:      1,
+		},
+		Vulnerabilities: []trivy.Vulnerability{
+			vulnerability,
+			vulnerability,
+			{
+				Package:   vulnerability.Package,
+				Version:   vulnerability.Version,
+				Ecosystem: vulnerability.Ecosystem,
+				CVEID:     "CVE-2026-3002",
+				Severity:  trivy.SeverityHigh,
+				Target:    vulnerability.Target,
+			},
+		},
+	}
+
+	result := ConvertTrivyResults(trivyResult)
+
+	if len(result.Vulnerabilities) != 2 {
+		t.Fatalf("vulnerabilities len = %d, want 2", len(result.Vulnerabilities))
+	}
+	if result.Summary.TotalVulnerabilities != len(result.Vulnerabilities) {
+		t.Errorf(
+			"summary total = %d, findings = %d",
+			result.Summary.TotalVulnerabilities,
+			len(result.Vulnerabilities),
+		)
+	}
+	if result.Vulnerabilities[0].Target != vulnerability.Target {
+		t.Errorf(
+			"target = %q, want %q",
+			result.Vulnerabilities[0].Target,
+			vulnerability.Target,
+		)
 	}
 }

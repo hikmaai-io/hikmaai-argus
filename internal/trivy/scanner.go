@@ -72,6 +72,7 @@ func (s *Scanner) ScanPackagesWithOptions(ctx context.Context, packages []Packag
 	if len(packages) == 0 {
 		return nil, errors.New("at least one package is required")
 	}
+	packages = deduplicatePackages(packages)
 
 	startTime := time.Now()
 
@@ -98,6 +99,7 @@ func (s *Scanner) ScanPackagesWithOptions(ctx context.Context, packages []Packag
 
 	// If all packages are cached and no secret scan requested, return aggregated result
 	if len(uncachedPackages) == 0 && !opts.ScanSecrets {
+		cachedVulns = DeduplicateVulnerabilities(cachedVulns)
 		result := &ScanResult{
 			Summary:         NewScanSummary(cachedVulns, len(packages)),
 			Vulnerabilities: cachedVulns,
@@ -125,6 +127,7 @@ func (s *Scanner) ScanPackagesWithOptions(ctx context.Context, packages []Packag
 
 	// Combine cached and scanned vulnerabilities
 	allVulns := append(cachedVulns, scanResult.vulns...)
+	allVulns = DeduplicateVulnerabilities(allVulns)
 
 	result := &ScanResult{
 		Summary:         NewScanSummary(allVulns, len(packages)),
@@ -223,12 +226,14 @@ func (s *Scanner) scanViaTrivy(ctx context.Context, packages []Package, scanSecr
 			ecosystem = "unknown"
 		}
 		for _, tv := range result.Vulnerabilities {
-			vulns = append(vulns, tv.ToVulnerability(ecosystem))
+			vulns = append(vulns, tv.ToVulnerability(ecosystem, result.Target))
 		}
 		for _, ts := range result.Secrets {
 			secrets = append(secrets, ts.ToSecret(result.Target))
 		}
 	}
+
+	vulns = DeduplicateVulnerabilities(vulns)
 
 	s.logger.Debug("trivy scan complete",
 		slog.Int("vulnerabilities", len(vulns)),
@@ -236,6 +241,24 @@ func (s *Scanner) scanViaTrivy(ctx context.Context, packages []Package, scanSecr
 	)
 
 	return &scanTrivyResult{vulns: vulns, secrets: secrets}, nil
+}
+
+func deduplicatePackages(packages []Package) []Package {
+	if len(packages) < 2 {
+		return packages
+	}
+
+	seen := make(map[string]struct{}, len(packages))
+	canonical := make([]Package, 0, len(packages))
+	for _, pkg := range packages {
+		key := pkg.CacheKey()
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		canonical = append(canonical, pkg)
+	}
+	return canonical
 }
 
 // cacheResults stores scan results in cache, grouped by package.

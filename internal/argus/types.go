@@ -178,6 +178,7 @@ type Vulnerability struct {
 	Package      string   `json:"package"`
 	Version      string   `json:"version"`
 	Ecosystem    string   `json:"ecosystem"`
+	Target       string   `json:"target,omitempty"`
 	CVEID        string   `json:"cve_id"`
 	Severity     string   `json:"severity"`
 	Title        string   `json:"title,omitempty"`

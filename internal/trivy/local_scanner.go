@@ -67,12 +67,12 @@ func (s *LocalScanner) Ping(ctx context.Context) error {
 
 // TrivyJSONReport is the JSON output from trivy fs command.
 type TrivyJSONReport struct {
-	SchemaVersion int                 `json:"SchemaVersion"`
-	CreatedAt     time.Time           `json:"CreatedAt"`
-	ArtifactName  string              `json:"ArtifactName"`
-	ArtifactType  string              `json:"ArtifactType"`
-	Results       []TrivyJSONResult   `json:"Results"`
-	Metadata      *TrivyJSONMetadata  `json:"Metadata,omitempty"`
+	SchemaVersion int                `json:"SchemaVersion"`
+	CreatedAt     time.Time          `json:"CreatedAt"`
+	ArtifactName  string             `json:"ArtifactName"`
+	ArtifactType  string             `json:"ArtifactType"`
+	Results       []TrivyJSONResult  `json:"Results"`
+	Metadata      *TrivyJSONMetadata `json:"Metadata,omitempty"`
 }
 
 // TrivyJSONMetadata contains metadata from the scan.
@@ -88,12 +88,12 @@ type TrivyJSONOS struct {
 
 // TrivyJSONResult is a result section in the JSON output.
 type TrivyJSONResult struct {
-	Target          string                  `json:"Target"`
-	Class           string                  `json:"Class"`
-	Type            string                  `json:"Type"`
-	Packages        []TrivyJSONPackage      `json:"Packages,omitempty"`
-	Vulnerabilities []TrivyJSONVulnItem     `json:"Vulnerabilities,omitempty"`
-	Secrets         []TrivyJSONSecretItem   `json:"Secrets,omitempty"`
+	Target          string                `json:"Target"`
+	Class           string                `json:"Class"`
+	Type            string                `json:"Type"`
+	Packages        []TrivyJSONPackage    `json:"Packages,omitempty"`
+	Vulnerabilities []TrivyJSONVulnItem   `json:"Vulnerabilities,omitempty"`
+	Secrets         []TrivyJSONSecretItem `json:"Secrets,omitempty"`
 }
 
 // TrivyJSONPackage is a package item in the JSON output.
@@ -220,6 +220,7 @@ func (s *LocalScanner) convertReport(report *TrivyJSONReport, startTime time.Tim
 				Package:      v.PkgName,
 				Version:      v.InstalledVersion,
 				Ecosystem:    ecosystem,
+				Target:       result.Target,
 				CVEID:        v.VulnerabilityID,
 				Severity:     v.Severity,
 				Title:        v.Title,
@@ -243,6 +244,8 @@ func (s *LocalScanner) convertReport(report *TrivyJSONReport, startTime time.Tim
 			})
 		}
 	}
+
+	vulns = DeduplicateVulnerabilities(vulns)
 
 	return &ScanResult{
 		Summary:         NewScanSummary(vulns, packagesScanned),
