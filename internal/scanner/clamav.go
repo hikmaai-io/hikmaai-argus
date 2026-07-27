@@ -151,7 +151,9 @@ func (s *ClamAVScanner) buildClamscanArgs(path string) []string {
 
 func (s *ClamAVScanner) buildClamscanDirArgs(path string, recursive bool) []string {
 	args := s.buildClamscanBaseArgs()
-	args = append(args, fmt.Sprintf("--recursive=%s", yesNo(recursive)))
+	if recursive {
+		args = append(args, "--recursive")
+	}
 	return append(args, path)
 }
 
@@ -174,13 +176,6 @@ func (s *ClamAVScanner) buildClamscanBaseArgs() []string {
 	)
 
 	return args
-}
-
-func yesNo(value bool) string {
-	if value {
-		return "yes"
-	}
-	return "no"
 }
 
 // Version returns the ClamAV engine version.

@@ -324,13 +324,13 @@ func TestClamAVScanner_BuildDirectoryCommand(t *testing.T) {
 	})
 
 	recursiveArgs := scanner.buildClamscanDirArgs("/scan", true)
-	if !containsArg(recursiveArgs, "--recursive=yes") {
-		t.Errorf("recursive args = %v, want --recursive=yes", recursiveArgs)
+	if !containsArg(recursiveArgs, "--recursive") {
+		t.Errorf("recursive args = %v, want --recursive", recursiveArgs)
 	}
 
 	flatArgs := scanner.buildClamscanDirArgs("/scan", false)
-	if !containsArg(flatArgs, "--recursive=no") {
-		t.Errorf("flat args = %v, want --recursive=no", flatArgs)
+	if containsArg(flatArgs, "--recursive") {
+		t.Errorf("flat args = %v, do not want --recursive", flatArgs)
 	}
 }
 
