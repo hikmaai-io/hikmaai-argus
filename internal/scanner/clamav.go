@@ -328,11 +328,9 @@ func (s *ClamAVScanner) scanDirWithClamscan(ctx context.Context, path string, re
 		if statErr == nil {
 			result.FileSize = info.Size()
 		}
-		if result.Status == types.ScanStatusInfected {
-			fileHash, hashErr := hashFile(result.FilePath)
-			if hashErr == nil {
-				result.FileHash = fileHash
-			}
+		fileHash, hashErr := hashFile(result.FilePath)
+		if hashErr == nil {
+			result.FileHash = fileHash
 		}
 		result.ScanTimeMs = elapsedMs
 	}

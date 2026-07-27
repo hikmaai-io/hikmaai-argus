@@ -314,6 +314,12 @@ func TestClamAVScanner_ScanDir_UsesSingleProcess(t *testing.T) {
 	if infected.FileHash != expectedHash {
 		t.Errorf("infected hash = %q, want %q", infected.FileHash, expectedHash)
 	}
+
+	for _, result := range results {
+		if result.FileHash == "" {
+			t.Errorf("file hash is empty for %q", result.FilePath)
+		}
+	}
 }
 
 func TestClamAVScanner_BuildDirectoryCommand(t *testing.T) {
