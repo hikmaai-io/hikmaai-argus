@@ -1,0 +1,114 @@
+# Managed by hikma-bridles: configs/github/workflows/sbom.yml
+name: Software bill of materials
+
+on:
+  push:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbom-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-sbom:
+    if: >-
+      github.event_name == 'release' ||
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.release.tag_name || github.sha }}
+          persist-credentials: false
+      - name: Install the pinned SBOM scanner
+        id: syft
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          syft-version: v1.49.0
+      - name: Generate source dependency inventories
+        shell: bash
+        env:
+          SYFT_BINARY: ${{ steps.syft.outputs.cmd }}
+          SBOM_DIRECTORY: ${{ runner.temp }}/hikma-sbom
+        run: |
+          set -euo pipefail
+          mkdir -p "$SBOM_DIRECTORY"
+          export SOURCE_SHA
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          "$SYFT_BINARY" version -o json > "$SBOM_DIRECTORY/scanner.json"
+          "$SYFT_BINARY" scan dir:. \
+            --source-name "$GITHUB_REPOSITORY" --source-version "$SOURCE_SHA" \
+            --exclude '**/.git/**' --exclude '**/.agent-worktrees/**' \
+            --exclude '**/.pi-worktrees/**' --exclude '**/.pi-subagents/**' \
+            --output "cyclonedx-json=$SBOM_DIRECTORY/source.cdx.json" \
+            --output "spdx-json=$SBOM_DIRECTORY/source.spdx.json"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['SBOM_DIRECTORY'])
+          formats = {'source.cdx.json': 'CycloneDX', 'source.spdx.json': 'SPDX'}
+          artifacts = []
+          for filename, format_name in formats.items():
+              raw = (root / filename).read_bytes()
+              document = json.loads(raw)
+              if format_name == 'CycloneDX':
+                  assert document.get('bomFormat') == 'CycloneDX', 'Invalid CycloneDX output'
+                  assert document.get('specVersion'), 'Missing CycloneDX version'
+                  packages = document.get('components', [])
+              else:
+                  assert document.get('spdxVersion', '').startswith('SPDX-'), 'Invalid SPDX output'
+                  assert document.get('documentNamespace'), 'Missing SPDX document identity'
+                  packages = document.get('packages', [])
+              assert isinstance(packages, list), 'Malformed package inventory'
+              artifacts.append({'file': filename, 'format': format_name,
+                                'sha256': hashlib.sha256(raw).hexdigest(),
+                                'package_count': len(packages)})
+          metadata = {'schema': 'bridles.hikmaai.io/source-sbom/v1',
+                      'repository': os.environ['GITHUB_REPOSITORY'],
+                      'source_sha': os.environ['SOURCE_SHA'],
+                      'scope': 'source-dependency-inventory',
+                      'workflow_run': os.environ['GITHUB_RUN_ID'],
+                      'scanner': json.loads((root / 'scanner.json').read_text()),
+                      'artifacts': artifacts,
+                      'coverage': 'Detected manifests and installed packages; shipped artifact coverage requires a separate scan.'}
+          (root / 'source-sbom-evidence.json').write_text(json.dumps(metadata, indent=2) + '\n')
+          PY
+      - name: Retain SBOMs and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-sbom-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hikma-sbom/*.json
+          if-no-files-found: error
+          retention-days: 90
+
+  release-sbom:
+    needs: source-sbom
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Retrieve the generated inventories
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: source-sbom-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hikma-sbom
+      - name: Attach source inventories to this release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SBOM_DIRECTORY: ${{ runner.temp }}/hikma-sbom
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" "$SBOM_DIRECTORY"/*.json --clobber
